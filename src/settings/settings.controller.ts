@@ -1,0 +1,46 @@
+// src/settings/settings.controller.ts
+import { Controller, Get, Put, Body, UseGuards } from '@nestjs/common';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { CurrentUser } from '../auth/decorators/roles.decorator';
+import { SettingsService } from './settings.service';
+import { Role } from '@prisma/client';
+
+@Controller('settings')
+@UseGuards(JwtAuthGuard)
+export class SettingsController {
+  constructor(private settingsService: SettingsService) {}
+
+  // Trainer settings
+  @Get('trainer')
+  @UseGuards(RolesGuard)
+  @Roles(Role.TRAINER, Role.TRAINER_CLIENT)
+  getTrainerSettings(@CurrentUser() user: any) {
+    return this.settingsService.getTrainerSettings(user.id);
+  }
+
+  @Put('trainer')
+  @UseGuards(RolesGuard)
+  @Roles(Role.TRAINER, Role.TRAINER_CLIENT)
+  updateTrainerSettings(
+    @CurrentUser() user: any,
+    @Body('sessionsPerSeason') sessionsPerSeason: number,
+  ) {
+    return this.settingsService.updateTrainerSettings(user.id, sessionsPerSeason);
+  }
+
+  // Client settings
+  @Get('client')
+  getClientSettings(@CurrentUser() user: any) {
+    return this.settingsService.getClientSettings(user.id);
+  }
+
+  @Put('client/trainer')
+  setClientTrainer(
+    @CurrentUser() user: any,
+    @Body('trainerId') trainerId: string | null,
+  ) {
+    return this.settingsService.setClientTrainer(user.id, trainerId);
+  }
+}

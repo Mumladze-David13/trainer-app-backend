@@ -1,0 +1,130 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  TRAINER
+  CLIENT
+  TRAINER_CLIENT
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  firstName String
+  lastName  String
+  role      Role
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // As trainer: exercises and clients belong to this trainer
+  exercises      Exercise[]
+  trainerClients TrainerClient[] @relation("TrainerToClient")
+  settings       TrainerSettings?
+
+  // As client: belongs to a trainer
+  clientOf TrainerClient[] @relation("ClientToTrainer")
+  workoutCompletions WorkoutCompletion[]
+}
+
+model TrainerSettings {
+  id                   String @id @default(uuid())
+  trainerId            String @unique
+  sessionsPerSeason    Int    @default(30)
+  trainer              User   @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+}
+
+// Which clients belong to which trainer
+model TrainerClient {
+  id        String   @id @default(uuid())
+  trainerId String
+  clientId  String
+  createdAt DateTime @default(now())
+
+  trainer User @relation("TrainerToClient", fields: [trainerId], references: [id], onDelete: Cascade)
+  client  User @relation("ClientToTrainer", fields: [clientId], references: [id], onDelete: Cascade)
+
+  seasons Season[]
+
+  @@unique([trainerId, clientId])
+}
+
+// Client settings (chosen trainer)
+model ClientSettings {
+  id        String @id @default(uuid())
+  clientId  String @unique
+  trainerId String?
+}
+
+model Exercise {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  trainerId   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  trainer          User              @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  workoutExercises WorkoutExercise[]
+
+  @@unique([name, trainerId])
+}
+
+model Season {
+  id              String        @id @default(uuid())
+  name            String
+  startDate       DateTime
+  endDate         DateTime?
+  trainerClientId String
+  isActive        Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+
+  trainerClient TrainerClient @relation(fields: [trainerClientId], references: [id], onDelete: Cascade)
+  workouts      Workout[]
+}
+
+model Workout {
+  id          String   @id @default(uuid())
+  seasonId    String
+  date        DateTime @default(now())
+  notes       String?
+  isCompleted Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  season           Season            @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  workoutExercises WorkoutExercise[]
+  completion       WorkoutCompletion?
+}
+
+model WorkoutExercise {
+  id         String  @id @default(uuid())
+  workoutId  String
+  exerciseId String
+  sets       Int     @default(1)
+  reps       Int     @default(10)
+  weight     Float?
+  order      Int     @default(0)
+  isDone     Boolean @default(false)
+
+  workout  Workout  @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+  exercise Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+}
+
+model WorkoutCompletion {
+  id        String   @id @default(uuid())
+  workoutId String   @unique
+  clientId  String
+  completedAt DateTime @default(now())
+
+  workout Workout @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+  client  User    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
