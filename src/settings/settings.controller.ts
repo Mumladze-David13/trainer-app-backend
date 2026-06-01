@@ -10,20 +10,20 @@ import { Role } from '@prisma/client';
 @Controller('settings')
 @UseGuards(JwtAuthGuard)
 export class SettingsController {
-  constructor(private settingsService: SettingsService) {}
+  constructor(private readonly settingsService: SettingsService) {}
 
   // Trainer settings
   @Get('trainer')
   @UseGuards(RolesGuard)
   @Roles(Role.TRAINER, Role.TRAINER_CLIENT)
-  getTrainerSettings(@CurrentUser() user: any) {
+  public getTrainerSettings(@CurrentUser() user: any) {
     return this.settingsService.getTrainerSettings(user.id);
   }
 
   @Put('trainer')
   @UseGuards(RolesGuard)
   @Roles(Role.TRAINER, Role.TRAINER_CLIENT)
-  updateTrainerSettings(
+  public updateTrainerSettings(
     @CurrentUser() user: any,
     @Body('sessionsPerSeason') sessionsPerSeason: number,
   ) {
@@ -32,12 +32,12 @@ export class SettingsController {
 
   // Client settings
   @Get('client')
-  getClientSettings(@CurrentUser() user: any) {
+  public getClientSettings(@CurrentUser() user: any) {
     return this.settingsService.getClientSettings(user.id);
   }
 
   @Put('client/trainer')
-  setClientTrainer(
+  public setClientTrainer(
     @CurrentUser() user: any,
     @Body('trainerId') trainerId: string | null,
   ) {

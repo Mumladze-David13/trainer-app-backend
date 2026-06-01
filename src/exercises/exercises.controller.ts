@@ -14,23 +14,23 @@ import { Role } from '@prisma/client';
 @Controller('exercises')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class ExercisesController {
-  constructor(private exercisesService: ExercisesService) {}
+  constructor(private readonly exercisesService: ExercisesService) {}
 
   @Get()
   @Roles(Role.TRAINER, Role.TRAINER_CLIENT)
-  findAll(@CurrentUser() user: any) {
+  public findAll(@CurrentUser() user: any) {
     return this.exercisesService.findAll(user.id);
   }
 
   @Post()
   @Roles(Role.TRAINER, Role.TRAINER_CLIENT)
-  create(@CurrentUser() user: any, @Body() dto: CreateExerciseDto) {
+  public create(@CurrentUser() user: any, @Body() dto: CreateExerciseDto) {
     return this.exercisesService.create(user.id, dto);
   }
 
   @Put(':id')
   @Roles(Role.TRAINER, Role.TRAINER_CLIENT)
-  update(
+  public update(
     @CurrentUser() user: any,
     @Param('id') id: string,
     @Body() dto: UpdateExerciseDto,
@@ -40,7 +40,7 @@ export class ExercisesController {
 
   @Delete(':id')
   @Roles(Role.TRAINER, Role.TRAINER_CLIENT)
-  remove(@CurrentUser() user: any, @Param('id') id: string) {
+  public remove(@CurrentUser() user: any, @Param('id') id: string) {
     return this.exercisesService.remove(id, user.id);
   }
 }

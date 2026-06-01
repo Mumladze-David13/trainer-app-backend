@@ -5,7 +5,7 @@ import { CreateSeasonDto } from './dto/create-season.dto';
 
 @Injectable()
 export class SeasonsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   private async getRelation(trainerId: string, clientId: string) {
     const relation = await this.prisma.trainerClient.findUnique({
@@ -15,7 +15,7 @@ export class SeasonsService {
     return relation;
   }
 
-  async createSeason(trainerId: string, clientId: string, dto: CreateSeasonDto) {
+  public async createSeason(trainerId: string, clientId: string, dto: CreateSeasonDto) {
     const relation = await this.getRelation(trainerId, clientId);
 
     // Считаем сколько сезонов уже есть — номер следующего = count + 1
@@ -36,7 +36,7 @@ export class SeasonsService {
     });
   }
 
-  async getSeasons(trainerId: string, clientId: string) {
+  public async getSeasons(trainerId: string, clientId: string) {
     const relation = await this.getRelation(trainerId, clientId);
     return this.prisma.season.findMany({
       where: { trainerClientId: relation.id },
@@ -56,7 +56,7 @@ export class SeasonsService {
     });
   }
 
-  async updateSeason(seasonId: string, trainerId: string, data: Partial<CreateSeasonDto>) {
+  public async updateSeason(seasonId: string, trainerId: string, data: Partial<CreateSeasonDto>) {
     const season = await this.prisma.season.findUnique({
       where: { id: seasonId },
       include: { trainerClient: true },

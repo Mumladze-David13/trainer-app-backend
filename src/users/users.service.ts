@@ -5,9 +5,9 @@ import { Role } from '@prisma/client';
 
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  async findById(id: string) {
+  public async findById(id: string) {
     return this.prisma.user.findUnique({
       where: { id },
       select: {
@@ -22,7 +22,7 @@ export class UsersService {
     });
   }
 
-  async findAllTrainers() {
+  public async findAllTrainers() {
     return this.prisma.user.findMany({
       where: {
         role: { in: [Role.TRAINER, Role.TRAINER_CLIENT] },

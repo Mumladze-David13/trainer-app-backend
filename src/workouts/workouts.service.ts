@@ -10,7 +10,7 @@ import { CreateWorkoutDto, UpdateWorkoutDto, CompleteWorkoutDto } from './dto/cr
 
 @Injectable()
 export class WorkoutsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   private async getSeasonAndValidateTrainer(seasonId: string, trainerId: string) {
     const season = await this.prisma.season.findUnique({
@@ -22,7 +22,7 @@ export class WorkoutsService {
     return season;
   }
 
-  async createWorkout(trainerId: string, dto: CreateWorkoutDto) {
+  public async createWorkout(trainerId: string, dto: CreateWorkoutDto) {
     const season = await this.getSeasonAndValidateTrainer(dto.seasonId, trainerId);
 
     // Check season limit
@@ -64,7 +64,7 @@ export class WorkoutsService {
     return workout;
   }
 
-  async getWorkout(id: string) {
+  public async getWorkout(id: string) {
     const workout = await this.prisma.workout.findUnique({
       where: { id },
       include: {
@@ -77,7 +77,7 @@ export class WorkoutsService {
     return workout;
   }
 
-  async updateWorkout(id: string, trainerId: string, dto: UpdateWorkoutDto) {
+  public async updateWorkout(id: string, trainerId: string, dto: UpdateWorkoutDto) {
     const workout = await this.prisma.workout.findUnique({
       where: { id },
       include: { season: { include: { trainerClient: true } } },
@@ -113,7 +113,7 @@ export class WorkoutsService {
     });
   }
 
-  async deleteWorkout(id: string, trainerId: string) {
+  public async deleteWorkout(id: string, trainerId: string) {
     const workout = await this.prisma.workout.findUnique({
       where: { id },
       include: { season: { include: { trainerClient: true } } },
@@ -126,7 +126,7 @@ export class WorkoutsService {
   }
 
   // CLIENT: Mark exercises done and optionally complete workout
-  async saveProgress(workoutId: string, clientId: string, dto: CompleteWorkoutDto) {
+  public async saveProgress(workoutId: string, clientId: string, dto: CompleteWorkoutDto) {
     // Validate client has access to this workout
     const workout = await this.prisma.workout.findUnique({
       where: { id: workoutId },
@@ -157,7 +157,7 @@ export class WorkoutsService {
     });
   }
 
-  async completeWorkout(workoutId: string, clientId: string, dto: CompleteWorkoutDto) {
+  public async completeWorkout(workoutId: string, clientId: string, dto: CompleteWorkoutDto) {
     const workout = await this.prisma.workout.findUnique({
       where: { id: workoutId },
       include: {
@@ -202,7 +202,7 @@ export class WorkoutsService {
   }
 
   // CLIENT: Get seasons for the client view
-  async getClientSeasons(clientId: string, trainerId: string) {
+  public async getClientSeasons(clientId: string, trainerId: string) {
     const relation = await this.prisma.trainerClient.findUnique({
       where: { trainerId_clientId: { trainerId, clientId } },
     });

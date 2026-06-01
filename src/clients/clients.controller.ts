@@ -14,20 +14,20 @@ import { Role } from '@prisma/client';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(Role.TRAINER, Role.TRAINER_CLIENT)
 export class ClientsController {
-  constructor(private clientsService: ClientsService) {}
+  constructor(private readonly clientsService: ClientsService) {}
 
   @Get()
-  getMyClients(@CurrentUser() user: any) {
+  public getMyClients(@CurrentUser() user: any) {
     return this.clientsService.getMyClients(user.id);
   }
 
   @Post()
-  addClient(@CurrentUser() user: any, @Body('clientId') clientId: string) {
+  public addClient(@CurrentUser() user: any, @Body('clientId') clientId: string) {
     return this.clientsService.addClient(user.id, clientId);
   }
 
   @Get(':clientId')
-  getClientDetail(
+  public getClientDetail(
     @CurrentUser() user: any,
     @Param('clientId') clientId: string,
   ) {
@@ -35,7 +35,7 @@ export class ClientsController {
   }
 
   @Delete(':clientId')
-  removeClient(
+  public removeClient(
     @CurrentUser() user: any,
     @Param('clientId') clientId: string,
   ) {

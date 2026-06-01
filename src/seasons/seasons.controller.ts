@@ -12,15 +12,15 @@ import { Role } from '@prisma/client';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(Role.TRAINER, Role.TRAINER_CLIENT)
 export class SeasonsController {
-  constructor(private seasonsService: SeasonsService) {}
+  constructor(private readonly seasonsService: SeasonsService) {}
 
   @Get()
-  getSeasons(@CurrentUser() user: any, @Param('clientId') clientId: string) {
+  public getSeasons(@CurrentUser() user: any, @Param('clientId') clientId: string) {
     return this.seasonsService.getSeasons(user.id, clientId);
   }
 
   @Post()
-  createSeason(
+  public createSeason(
     @CurrentUser() user: any,
     @Param('clientId') clientId: string,
     @Body() dto: CreateSeasonDto,
@@ -29,7 +29,7 @@ export class SeasonsController {
   }
 
   @Put(':seasonId')
-  updateSeason(
+  public updateSeason(
     @CurrentUser() user: any,
     @Param('seasonId') seasonId: string,
     @Body() dto: Partial<CreateSeasonDto>,

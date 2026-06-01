@@ -10,16 +10,16 @@ import { CreateExerciseDto, UpdateExerciseDto } from './dto/create-exercise.dto'
 
 @Injectable()
 export class ExercisesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(trainerId: string) {
+  public async findAll(trainerId: string) {
     return this.prisma.exercise.findMany({
       where: { trainerId },
       orderBy: { name: 'asc' },
     });
   }
 
-  async create(trainerId: string, dto: CreateExerciseDto) {
+  public async create(trainerId: string, dto: CreateExerciseDto) {
     const existing = await this.prisma.exercise.findUnique({
       where: { name_trainerId: { name: dto.name, trainerId } },
     });
@@ -30,7 +30,7 @@ export class ExercisesService {
     });
   }
 
-  async update(id: string, trainerId: string, dto: UpdateExerciseDto) {
+  public async update(id: string, trainerId: string, dto: UpdateExerciseDto) {
     const exercise = await this.prisma.exercise.findUnique({ where: { id } });
     if (!exercise) throw new NotFoundException('Exercise not found');
     if (exercise.trainerId !== trainerId) throw new ForbiddenException();
@@ -48,7 +48,7 @@ export class ExercisesService {
     });
   }
 
-  async remove(id: string, trainerId: string) {
+  public async remove(id: string, trainerId: string) {
     const exercise = await this.prisma.exercise.findUnique({ where: { id } });
     if (!exercise) throw new NotFoundException('Exercise not found');
     if (exercise.trainerId !== trainerId) throw new ForbiddenException();

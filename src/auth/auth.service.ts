@@ -14,11 +14,11 @@ import { Role } from '@prisma/client';
 @Injectable()
 export class AuthService {
   constructor(
-    private prisma: PrismaService,
-    private jwtService: JwtService,
+    private readonly prisma: PrismaService,
+    private readonly jwtService: JwtService,
   ) {}
 
-  async register(dto: RegisterDto) {
+  public async register(dto: RegisterDto) {
     const existing = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });
@@ -58,7 +58,7 @@ export class AuthService {
     return { user, token };
   }
 
-  async login(dto: LoginDto) {
+  public async login(dto: LoginDto) {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });

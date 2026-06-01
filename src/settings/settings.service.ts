@@ -4,9 +4,9 @@ import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class SettingsService {
-  constructor(private prisma: PrismaService) {}
-  
-  async getTrainerSettings(trainerId: string) {
+  constructor(private readonly prisma: PrismaService) {}
+
+  public async getTrainerSettings(trainerId: string) {
     let settings = await this.prisma.trainerSettings.findUnique({
       where: { trainerId },
     });
@@ -17,31 +17,31 @@ export class SettingsService {
     }
     return settings;
   }
-  
-  async updateTrainerSettings(trainerId: string, sessionsPerSeason: number) {
+
+  public async updateTrainerSettings(trainerId: string, sessionsPerSeason: number) {
     return this.prisma.trainerSettings.upsert({
       where: { trainerId },
       create: { trainerId, sessionsPerSeason },
       update: { sessionsPerSeason },
     });
   }
-  
-  async getClientSettings(clientId: string) {
+
+  public async getClientSettings(clientId: string) {
     let settings = await this.prisma.clientSettings.findUnique({
       where: { clientId },
     });
     if (!settings) return { clientId, trainerId: null };
     return settings;
   }
-  
-  async setClientTrainer(clientId: string, trainerId: string | null) {
+
+  public async setClientTrainer(clientId: string, trainerId: string | null) {
     // Save client settings
     const settings = await this.prisma.clientSettings.upsert({
       where: { clientId },
       create: { clientId, trainerId },
       update: { trainerId },
     });
-    
+
     // Auto-create TrainerClient relation so seasons/workouts work
     if (trainerId) {
       await this.prisma.trainerClient.upsert({
@@ -49,7 +49,7 @@ export class SettingsService {
         create: { trainerId, clientId },
         update: {},
       });
-      
+
       // Ensure trainer has TrainerSettings
       await this.prisma.trainerSettings.upsert({
         where: { trainerId },
@@ -57,7 +57,7 @@ export class SettingsService {
         update: {},
       });
     }
-    
+
     return settings;
   }
 }

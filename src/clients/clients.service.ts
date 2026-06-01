@@ -4,9 +4,9 @@ import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class ClientsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  async getMyClients(trainerId: string) {
+  public async getMyClients(trainerId: string) {
     const relations = await this.prisma.trainerClient.findMany({
       where: { trainerId },
       include: {
@@ -33,7 +33,7 @@ export class ClientsService {
     }));
   }
 
-  async addClient(trainerId: string, clientId: string) {
+  public async addClient(trainerId: string, clientId: string) {
     // Trainer can add themselves
     const client = await this.prisma.user.findUnique({ where: { id: clientId } });
     if (!client) throw new NotFoundException('User not found');
@@ -53,7 +53,7 @@ export class ClientsService {
     });
   }
 
-  async removeClient(trainerId: string, clientId: string) {
+  public async removeClient(trainerId: string, clientId: string) {
     const relation = await this.prisma.trainerClient.findUnique({
       where: { trainerId_clientId: { trainerId, clientId } },
     });
@@ -63,7 +63,7 @@ export class ClientsService {
     return { message: 'Client removed' };
   }
 
-  async getClientDetail(trainerId: string, clientId: string) {
+  public async getClientDetail(trainerId: string, clientId: string) {
     const relation = await this.prisma.trainerClient.findUnique({
       where: { trainerId_clientId: { trainerId, clientId } },
       include: {
