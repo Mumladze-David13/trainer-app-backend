@@ -2,6 +2,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { Role } from '@prisma/client';
+import { UpdateRoleDto } from './dto/update-role.dto';
 
 @Injectable()
 export class UsersService {
@@ -20,6 +21,34 @@ export class UsersService {
         settings: true,
       },
     });
+  }
+
+  public async updateRole(userId: string, dto: UpdateRoleDto) {
+    const trainerRoles: Role[] = [Role.TRAINER, Role.TRAINER_CLIENT];
+
+    const user = await this.prisma.user.update({
+      where: { id: userId },
+      data: { role: dto.role },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        createdAt: true,
+        settings: true,
+      },
+    });
+
+    if (trainerRoles.includes(dto.role)) {
+      await this.prisma.trainerSettings.upsert({
+        where: { trainerId: userId },
+        create: { trainerId: userId },
+        update: {},
+      });
+    }
+
+    return user;
   }
 
   public async findAllTrainers() {
