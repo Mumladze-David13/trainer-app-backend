@@ -1,5 +1,5 @@
 // src/workouts/dto/create-workout.dto.ts
-import { IsString, IsOptional, IsArray, ValidateNested, IsNumber, IsUUID } from 'class-validator';
+import { IsString, IsOptional, IsArray, ValidateNested, IsNumber, IsUUID, IsInt } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class WorkoutExerciseDto {
@@ -15,6 +15,19 @@ export class WorkoutExerciseDto {
   @IsOptional()
   @IsNumber()
   weight?: number;
+
+  @IsOptional()
+  @IsArray()
+  @IsNumber({}, { each: true })
+  setWeights?: number[];
+
+  @IsOptional()
+  @IsInt()
+  supersetGroup?: number;
+
+  @IsOptional()
+  @IsInt()
+  supersetOrder?: number;
 
   @IsNumber()
   order: number;

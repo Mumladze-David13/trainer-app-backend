@@ -12,6 +12,18 @@ import { CreateWorkoutDto, UpdateWorkoutDto, CompleteWorkoutDto } from './dto/cr
 export class WorkoutsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private parseSetWeights<T extends { workoutExercises: Array<{ setWeights: string | null } & Record<string, unknown>> }>(
+    workout: T,
+  ): T {
+    return {
+      ...workout,
+      workoutExercises: workout.workoutExercises.map((ex) => ({
+        ...ex,
+        setWeights: ex.setWeights ? (JSON.parse(ex.setWeights) as number[]) : null,
+      })),
+    };
+  }
+
   private async getSeasonAndValidateTrainer(seasonId: string, trainerId: string) {
     const season = await this.prisma.season.findUnique({
       where: { id: seasonId },
@@ -51,6 +63,9 @@ export class WorkoutsService {
             sets: ex.sets,
             reps: ex.reps,
             weight: ex.weight,
+            setWeights: ex.setWeights ? JSON.stringify(ex.setWeights) : undefined,
+            supersetGroup: ex.supersetGroup,
+            supersetOrder: ex.supersetOrder,
             order: ex.order,
           })),
         },
@@ -61,7 +76,7 @@ export class WorkoutsService {
       },
     });
 
-    return workout;
+    return this.parseSetWeights(workout);
   }
 
   public async getWorkout(id: string) {
@@ -74,7 +89,7 @@ export class WorkoutsService {
       },
     });
     if (!workout) throw new NotFoundException('Workout not found');
-    return workout;
+    return this.parseSetWeights(workout);
   }
 
   public async updateWorkout(id: string, trainerId: string, dto: UpdateWorkoutDto) {
@@ -90,7 +105,7 @@ export class WorkoutsService {
       await this.prisma.workoutExercise.deleteMany({ where: { workoutId: id } });
     }
 
-    return this.prisma.workout.update({
+    const updated = await this.prisma.workout.update({
       where: { id },
       data: {
         ...(dto.notes !== undefined && { notes: dto.notes }),
@@ -101,6 +116,9 @@ export class WorkoutsService {
               sets: ex.sets,
               reps: ex.reps,
               weight: ex.weight,
+              setWeights: ex.setWeights ? JSON.stringify(ex.setWeights) : undefined,
+              supersetGroup: ex.supersetGroup,
+              supersetOrder: ex.supersetOrder,
               order: ex.order,
             })),
           },
@@ -111,6 +129,8 @@ export class WorkoutsService {
         completion: true,
       },
     });
+
+    return this.parseSetWeights(updated);
   }
 
   public async deleteWorkout(id: string, trainerId: string) {
@@ -208,7 +228,7 @@ export class WorkoutsService {
     });
     if (!relation) throw new NotFoundException('Trainer-client relation not found');
 
-    return this.prisma.season.findMany({
+    const seasons = await this.prisma.season.findMany({
       where: { trainerClientId: relation.id },
       include: {
         workouts: {
@@ -221,5 +241,10 @@ export class WorkoutsService {
       },
       orderBy: { startDate: 'desc' },
     });
+
+    return seasons.map((season) => ({
+      ...season,
+      workouts: season.workouts.map((w) => this.parseSetWeights(w)),
+    }));
   }
 }

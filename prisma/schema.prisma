@@ -106,14 +106,17 @@ model Workout {
 }
 
 model WorkoutExercise {
-  id         String  @id @default(uuid())
-  workoutId  String
-  exerciseId String
-  sets       Int     @default(1)
-  reps       Int     @default(10)
-  weight     Float?
-  order      Int     @default(0)
-  isDone     Boolean @default(false)
+  id            String  @id @default(uuid())
+  workoutId     String
+  exerciseId    String
+  sets          Int     @default(1)
+  reps          Int     @default(10)
+  weight        Float?
+  setWeights    String?
+  supersetGroup Int?
+  supersetOrder Int?
+  order         Int     @default(0)
+  isDone        Boolean @default(false)
 
   workout  Workout  @relation(fields: [workoutId], references: [id], onDelete: Cascade)
   exercise Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
