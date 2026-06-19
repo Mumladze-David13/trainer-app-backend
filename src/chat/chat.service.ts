@@ -81,11 +81,12 @@ export class ChatService {
     return messages;
   }
 
-  async sendMessage(conversationId: string, userId: string, dto: CreateMessageDto) {
-    const conversation = await this.verifyParticipant(conversationId, userId);
+  async createMessage(conversationId: string, senderId: string, text: string) {
+    const conversation = await this.verifyParticipant(conversationId, senderId);
 
     const message = await this.prisma.message.create({
-      data: { conversationId, senderId: userId, text: dto.text },
+      data: { conversationId, senderId, text },
+      include: { sender: { select: { id: true, firstName: true, lastName: true } } },
     });
 
     await this.prisma.conversation.update({
@@ -94,22 +95,26 @@ export class ChatService {
     });
 
     const recipientId =
-      conversation.trainerId === userId ? conversation.clientId : conversation.trainerId;
+      senderId === conversation.trainerId ? conversation.clientId : conversation.trainerId;
 
-    const sender = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { firstName: true, lastName: true },
-    });
-    const senderName = sender ? `${sender.firstName} ${sender.lastName}` : '';
-
-    await this.notificationsService.notifyNewMessage(
-      recipientId,
-      senderName,
-      dto.text,
-      conversationId,
-    );
+    if (recipientId !== senderId) {
+      const senderUser = await this.prisma.user.findUnique({
+        where: { id: senderId },
+        select: { firstName: true, lastName: true },
+      });
+      await this.notificationsService.notifyNewMessage(
+        recipientId,
+        senderUser ? `${senderUser.firstName} ${senderUser.lastName}` : '',
+        text,
+        conversationId,
+      );
+    }
 
     return message;
+  }
+
+  async sendMessage(conversationId: string, userId: string, dto: CreateMessageDto) {
+    return this.createMessage(conversationId, userId, dto.text);
   }
 
   async findOrCreateConversation(currentUserId: string, otherUserId: string) {

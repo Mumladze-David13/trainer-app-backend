@@ -189,6 +189,7 @@ describe('ChatService', () => {
 
       expect(mockPrismaService.message.create).toHaveBeenCalledWith({
         data: { conversationId: 'conv-1', senderId: 'trainer-1', text: 'Привет!' },
+        include: { sender: { select: { id: true, firstName: true, lastName: true } } },
       });
       expect(mockPrismaService.conversation.update).toHaveBeenCalledWith({
         where: { id: 'conv-1' },
