@@ -6,11 +6,15 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateWorkoutDto, UpdateWorkoutDto, CompleteWorkoutDto } from './dto/create-workout.dto';
 
 @Injectable()
 export class WorkoutsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationsService: NotificationsService,
+  ) {}
 
   private parseSetWeights<T extends { workoutExercises: Array<{ setWeights: string | null } & Record<string, unknown>> }>(
     workout: T,
@@ -75,6 +79,17 @@ export class WorkoutsService {
         completion: true,
       },
     });
+
+    const trainer = await this.prisma.user.findUnique({
+      where: { id: trainerId },
+      select: { firstName: true, lastName: true },
+    });
+    if (trainer) {
+      await this.notificationsService.notifyWorkoutCreated(
+        season.trainerClient.clientId,
+        `${trainer.firstName} ${trainer.lastName}`,
+      );
+    }
 
     return this.parseSetWeights(workout);
   }

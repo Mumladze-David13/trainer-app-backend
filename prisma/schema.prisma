@@ -22,6 +22,7 @@ model User {
   firstName String
   lastName  String
   role      Role
+  fcmToken  String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -33,6 +34,10 @@ model User {
   // As client: belongs to a trainer
   clientOf TrainerClient[] @relation("ClientToTrainer")
   workoutCompletions WorkoutCompletion[]
+
+  trainerConversations Conversation[] @relation("TrainerConversations")
+  clientConversations  Conversation[] @relation("ClientConversations")
+  sentMessages         Message[]      @relation("SentMessages")
 }
 
 model TrainerSettings {
@@ -130,4 +135,28 @@ model WorkoutCompletion {
 
   workout Workout @relation(fields: [workoutId], references: [id], onDelete: Cascade)
   client  User    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+model Conversation {
+  id        String   @id @default(uuid())
+  trainerId String
+  clientId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  trainer   User     @relation("TrainerConversations", fields: [trainerId], references: [id])
+  client    User     @relation("ClientConversations", fields: [clientId], references: [id])
+  messages  Message[]
+
+  @@unique([trainerId, clientId])
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  conversationId String
+  senderId       String
+  text           String
+  isRead         Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         User         @relation("SentMessages", fields: [senderId], references: [id])
 }

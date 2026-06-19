@@ -9,6 +9,8 @@ import { ClientsModule } from './clients/clients.module';
 import { SeasonsModule } from './seasons/seasons.module';
 import { WorkoutsModule } from './workouts/workouts.module';
 import { SettingsModule } from './settings/settings.module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { ChatModule } from './chat/chat.module';
 
 @Module({
   imports: [
@@ -21,6 +23,8 @@ import { SettingsModule } from './settings/settings.module';
     SeasonsModule,
     WorkoutsModule,
     SettingsModule,
+    NotificationsModule,
+    ChatModule,
   ],
 })
 export class AppModule {}
