@@ -12,6 +12,7 @@ describe('ChatService', () => {
     conversation: {
       findMany: jest.fn(),
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
     },
@@ -23,6 +24,9 @@ describe('ChatService', () => {
     },
     user: {
       findUnique: jest.fn(),
+    },
+    trainerClient: {
+      findFirst: jest.fn(),
     },
   };
 
@@ -221,23 +225,39 @@ describe('ChatService', () => {
 
   // ──────────────────────────────────────────────────────────
   describe('findOrCreateConversation', () => {
-    it('should return existing conversation', async () => {
-      mockPrismaService.user.findUnique
-        .mockResolvedValueOnce({ role: Role.TRAINER })
-        .mockResolvedValueOnce({ role: Role.CLIENT });
-      mockPrismaService.conversation.findUnique.mockResolvedValue(mockConversation);
+    it('should return existing conversation found in direct direction', async () => {
+      mockPrismaService.conversation.findFirst.mockResolvedValue(mockConversation);
 
       const result = await service.findOrCreateConversation('trainer-1', 'client-1');
 
+      expect(mockPrismaService.conversation.findFirst).toHaveBeenCalledWith({
+        where: {
+          OR: [
+            { trainerId: 'trainer-1', clientId: 'client-1' },
+            { trainerId: 'client-1', clientId: 'trainer-1' },
+          ],
+        },
+      });
+      expect(mockPrismaService.user.findUnique).not.toHaveBeenCalled();
       expect(mockPrismaService.conversation.create).not.toHaveBeenCalled();
       expect(result).toEqual(mockConversation);
     });
 
-    it('should create conversation when it does not exist', async () => {
+    it('should return existing conversation found in reverse direction', async () => {
+      const reversedConv = { ...mockConversation, trainerId: 'client-1', clientId: 'trainer-1' };
+      mockPrismaService.conversation.findFirst.mockResolvedValue(reversedConv);
+
+      const result = await service.findOrCreateConversation('trainer-1', 'client-1');
+
+      expect(mockPrismaService.conversation.create).not.toHaveBeenCalled();
+      expect(result).toEqual(reversedConv);
+    });
+
+    it('should create conversation when it does not exist (TRAINER + CLIENT)', async () => {
+      mockPrismaService.conversation.findFirst.mockResolvedValue(null);
       mockPrismaService.user.findUnique
         .mockResolvedValueOnce({ role: Role.TRAINER })
         .mockResolvedValueOnce({ role: Role.CLIENT });
-      mockPrismaService.conversation.findUnique.mockResolvedValue(null);
       mockPrismaService.conversation.create.mockResolvedValue(mockConversation);
 
       const result = await service.findOrCreateConversation('trainer-1', 'client-1');
@@ -248,11 +268,11 @@ describe('ChatService', () => {
       expect(result).toEqual(mockConversation);
     });
 
-    it('should assign roles correctly: trainer as trainerId, client as clientId', async () => {
+    it('should swap roles when CLIENT initiates with TRAINER', async () => {
+      mockPrismaService.conversation.findFirst.mockResolvedValue(null);
       mockPrismaService.user.findUnique
         .mockResolvedValueOnce({ role: Role.CLIENT })
         .mockResolvedValueOnce({ role: Role.TRAINER });
-      mockPrismaService.conversation.findUnique.mockResolvedValue(null);
       mockPrismaService.conversation.create.mockResolvedValue({
         ...mockConversation,
         trainerId: 'other-user-id',
@@ -266,11 +286,34 @@ describe('ChatService', () => {
       });
     });
 
-    it('should treat initiator as trainer when both are TRAINER_CLIENT', async () => {
+    it('should use TrainerClient relation when both users are TRAINER_CLIENT', async () => {
+      mockPrismaService.conversation.findFirst.mockResolvedValue(null);
       mockPrismaService.user.findUnique
         .mockResolvedValueOnce({ role: Role.TRAINER_CLIENT })
         .mockResolvedValueOnce({ role: Role.TRAINER_CLIENT });
-      mockPrismaService.conversation.findUnique.mockResolvedValue(null);
+      mockPrismaService.trainerClient.findFirst.mockResolvedValue({
+        trainerId: 'user-b',
+        clientId: 'user-a',
+      });
+      mockPrismaService.conversation.create.mockResolvedValue({
+        ...mockConversation,
+        trainerId: 'user-b',
+        clientId: 'user-a',
+      });
+
+      await service.findOrCreateConversation('user-a', 'user-b');
+
+      expect(mockPrismaService.conversation.create).toHaveBeenCalledWith({
+        data: { trainerId: 'user-b', clientId: 'user-a' },
+      });
+    });
+
+    it('should treat initiator as trainer when both TRAINER_CLIENT and no TrainerClient link', async () => {
+      mockPrismaService.conversation.findFirst.mockResolvedValue(null);
+      mockPrismaService.user.findUnique
+        .mockResolvedValueOnce({ role: Role.TRAINER_CLIENT })
+        .mockResolvedValueOnce({ role: Role.TRAINER_CLIENT });
+      mockPrismaService.trainerClient.findFirst.mockResolvedValue(null);
       mockPrismaService.conversation.create.mockResolvedValue(mockConversation);
 
       await service.findOrCreateConversation('user-a', 'user-b');
@@ -280,13 +323,13 @@ describe('ChatService', () => {
       });
     });
 
-    it('should handle P2002 race condition by fetching existing conversation', async () => {
+    it('should handle P2002 race condition by re-fetching with findFirst', async () => {
+      mockPrismaService.conversation.findFirst
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(mockConversation);
       mockPrismaService.user.findUnique
         .mockResolvedValueOnce({ role: Role.TRAINER })
         .mockResolvedValueOnce({ role: Role.CLIENT });
-      mockPrismaService.conversation.findUnique
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce(mockConversation);
       const p2002Error = Object.assign(new Error('Unique constraint'), { code: 'P2002' });
       mockPrismaService.conversation.create.mockRejectedValue(p2002Error);
 
@@ -296,6 +339,7 @@ describe('ChatService', () => {
     });
 
     it('should throw NotFoundException when a user does not exist', async () => {
+      mockPrismaService.conversation.findFirst.mockResolvedValue(null);
       mockPrismaService.user.findUnique
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce({ role: Role.CLIENT });

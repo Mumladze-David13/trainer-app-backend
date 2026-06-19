@@ -113,6 +113,17 @@ export class ChatService {
   }
 
   async findOrCreateConversation(currentUserId: string, otherUserId: string) {
+    // Search in both directions to avoid duplicates regardless of who initiates
+    const existing = await this.prisma.conversation.findFirst({
+      where: {
+        OR: [
+          { trainerId: currentUserId, clientId: otherUserId },
+          { trainerId: otherUserId, clientId: currentUserId },
+        ],
+      },
+    });
+    if (existing) return existing;
+
     const [currentUser, otherUser] = await Promise.all([
       this.prisma.user.findUnique({ where: { id: currentUserId }, select: { role: true } }),
       this.prisma.user.findUnique({ where: { id: otherUserId }, select: { role: true } }),
@@ -120,37 +131,58 @@ export class ChatService {
 
     if (!currentUser || !otherUser) throw new NotFoundException('User not found');
 
-    const isCurrentTrainer =
-      currentUser.role === Role.TRAINER || currentUser.role === Role.TRAINER_CLIENT;
-    const isOtherTrainer =
-      otherUser.role === Role.TRAINER || otherUser.role === Role.TRAINER_CLIENT;
-
     let trainerId: string;
     let clientId: string;
 
-    if (isCurrentTrainer && !isOtherTrainer) {
+    if (currentUser.role === Role.TRAINER && otherUser.role === Role.CLIENT) {
       trainerId = currentUserId;
       clientId = otherUserId;
-    } else if (!isCurrentTrainer && isOtherTrainer) {
+    } else if (currentUser.role === Role.CLIENT && otherUser.role === Role.TRAINER) {
       trainerId = otherUserId;
       clientId = currentUserId;
-    } else {
-      // Both TRAINER_CLIENT — initiator becomes trainer
+    } else if (
+      currentUser.role === Role.TRAINER_CLIENT &&
+      otherUser.role === Role.TRAINER_CLIENT
+    ) {
+      // Determine trainer by existing TrainerClient relation
+      const link = await this.prisma.trainerClient.findFirst({
+        where: {
+          OR: [
+            { trainerId: currentUserId, clientId: otherUserId },
+            { trainerId: otherUserId, clientId: currentUserId },
+          ],
+        },
+      });
+      if (link) {
+        trainerId = link.trainerId;
+        clientId = link.clientId;
+      } else {
+        // No explicit relation — initiator becomes trainer
+        trainerId = currentUserId;
+        clientId = otherUserId;
+      }
+    } else if (
+      currentUser.role === Role.TRAINER ||
+      currentUser.role === Role.TRAINER_CLIENT
+    ) {
       trainerId = currentUserId;
       clientId = otherUserId;
+    } else {
+      trainerId = otherUserId;
+      clientId = currentUserId;
     }
-
-    const existing = await this.prisma.conversation.findUnique({
-      where: { trainerId_clientId: { trainerId, clientId } },
-    });
-    if (existing) return existing;
 
     try {
       return await this.prisma.conversation.create({ data: { trainerId, clientId } });
     } catch (error) {
       if (error.code === 'P2002') {
-        return this.prisma.conversation.findUnique({
-          where: { trainerId_clientId: { trainerId, clientId } },
+        return this.prisma.conversation.findFirst({
+          where: {
+            OR: [
+              { trainerId, clientId },
+              { trainerId: clientId, clientId: trainerId },
+            ],
+          },
         });
       }
       throw error;
