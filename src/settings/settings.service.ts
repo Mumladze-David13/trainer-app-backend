@@ -1,5 +1,6 @@
 // src/settings/settings.service.ts
 import { Injectable } from '@nestjs/common';
+import { SubscriptionPlan } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -23,6 +24,14 @@ export class SettingsService {
       where: { trainerId },
       create: { trainerId, sessionsPerSeason },
       update: { sessionsPerSeason },
+    });
+  }
+
+  public async updatePlan(trainerId: string, plan: SubscriptionPlan) {
+    return this.prisma.trainerSettings.upsert({
+      where: { trainerId },
+      create: { trainerId, plan },
+      update: { plan },
     });
   }
 

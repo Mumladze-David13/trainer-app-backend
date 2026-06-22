@@ -1,5 +1,6 @@
 // src/settings/settings.controller.ts
 import { Controller, Get, Put, Body, UseGuards } from '@nestjs/common';
+import { SubscriptionPlan } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -28,6 +29,16 @@ export class SettingsController {
     @Body('sessionsPerSeason') sessionsPerSeason: number,
   ) {
     return this.settingsService.updateTrainerSettings(user.id, sessionsPerSeason);
+  }
+
+  @Put('trainer/plan')
+  @UseGuards(RolesGuard)
+  @Roles(Role.TRAINER, Role.TRAINER_CLIENT)
+  public updatePlan(
+    @CurrentUser() user: any,
+    @Body('plan') plan: SubscriptionPlan,
+  ) {
+    return this.settingsService.updatePlan(user.id, plan);
   }
 
   // Client settings

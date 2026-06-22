@@ -11,6 +11,7 @@ import { WorkoutsModule } from './workouts/workouts.module';
 import { SettingsModule } from './settings/settings.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { ChatModule } from './chat/chat.module';
+import { AiModule } from './ai/ai.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { ChatModule } from './chat/chat.module';
     SettingsModule,
     NotificationsModule,
     ChatModule,
+    AiModule,
   ],
 })
 export class AppModule {}

@@ -15,6 +15,13 @@ enum Role {
   TRAINER_CLIENT
 }
 
+enum SubscriptionPlan {
+  FREE
+  BASIC
+  PRO
+  UNLIMITED
+}
+
 model User {
   id        String   @id @default(uuid())
   email     String   @unique
@@ -38,13 +45,15 @@ model User {
   trainerConversations Conversation[] @relation("TrainerConversations")
   clientConversations  Conversation[] @relation("ClientConversations")
   sentMessages         Message[]      @relation("SentMessages")
+  aiUsageLogs          AiUsageLog[]
 }
 
 model TrainerSettings {
-  id                   String @id @default(uuid())
-  trainerId            String @unique
-  sessionsPerSeason    Int    @default(30)
-  trainer              User   @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  id                String           @id @default(uuid())
+  trainerId         String           @unique
+  sessionsPerSeason Int              @default(30)
+  plan              SubscriptionPlan @default(FREE)
+  trainer           User             @relation(fields: [trainerId], references: [id], onDelete: Cascade)
 }
 
 // Which clients belong to which trainer
@@ -148,6 +157,21 @@ model Conversation {
   messages  Message[]
 
   @@unique([trainerId, clientId])
+}
+
+model AiUsageLog {
+  id           String   @id @default(uuid())
+  trainerId    String
+  inputTokens  Int
+  outputTokens Int
+  totalTokens  Int
+  costUsd      Float
+  operation    String
+  createdAt    DateTime @default(now())
+
+  trainer User @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+
+  @@index([trainerId, createdAt])
 }
 
 model Message {
