@@ -1,46 +1,57 @@
-// src/workouts/dto/create-workout.dto.ts
 import { IsString, IsOptional, IsArray, ValidateNested, IsNumber, IsUUID, IsInt } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 
 export class WorkoutExerciseDto {
+  @ApiProperty({ example: 'uuid-упражнения' })
   @IsUUID()
   exerciseId: string;
 
+  @ApiProperty({ example: 3 })
   @IsNumber()
   sets: number;
 
+  @ApiProperty({ example: 10 })
   @IsNumber()
   reps: number;
 
+  @ApiPropertyOptional({ example: 80 })
   @IsOptional()
   @IsNumber()
   weight?: number;
 
+  @ApiPropertyOptional({ example: [70, 80, 80], description: 'Вес по каждому подходу' })
   @IsOptional()
   @IsArray()
   @IsNumber({}, { each: true })
   setWeights?: number[];
 
+  @ApiPropertyOptional({ example: 1, description: 'Номер суперсета' })
   @IsOptional()
   @IsInt()
   supersetGroup?: number;
 
+  @ApiPropertyOptional({ example: 1, description: 'Порядок в суперсете' })
   @IsOptional()
   @IsInt()
   supersetOrder?: number;
 
+  @ApiProperty({ example: 0, description: 'Порядок упражнения в тренировке' })
   @IsNumber()
   order: number;
 }
 
 export class CreateWorkoutDto {
+  @ApiProperty({ example: 'uuid-сезона' })
   @IsString()
   seasonId: string;
 
+  @ApiPropertyOptional({ example: 'Акцент на ноги' })
   @IsOptional()
   @IsString()
   notes?: string;
 
+  @ApiProperty({ type: [WorkoutExerciseDto] })
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => WorkoutExerciseDto)
@@ -48,10 +59,12 @@ export class CreateWorkoutDto {
 }
 
 export class UpdateWorkoutDto {
+  @ApiPropertyOptional({ example: 'Акцент на грудь' })
   @IsOptional()
   @IsString()
   notes?: string;
 
+  @ApiPropertyOptional({ type: [WorkoutExerciseDto] })
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
@@ -60,6 +73,7 @@ export class UpdateWorkoutDto {
 }
 
 export class CompleteWorkoutDto {
+  @ApiProperty({ example: ['uuid-1', 'uuid-2'], description: 'ID выполненных упражнений' })
   @IsArray()
   doneExerciseIds: string[];
 }
