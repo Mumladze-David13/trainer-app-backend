@@ -46,6 +46,9 @@ model User {
   clientConversations  Conversation[] @relation("ClientConversations")
   sentMessages         Message[]      @relation("SentMessages")
   aiUsageLogs          AiUsageLog[]
+
+  nutritionProfile  NutritionProfile?
+  mealPlans         MealPlan[]
 }
 
 model TrainerSettings {
@@ -183,4 +186,78 @@ model Message {
   createdAt      DateTime     @default(now())
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   sender         User         @relation("SentMessages", fields: [senderId], references: [id])
+}
+
+model NutritionProfile {
+  id                 String    @id @default(uuid())
+  clientId           String    @unique
+  gender             String
+  age                Int
+  weightKg           Float
+  heightCm           Float
+  activityLevel      String
+  goal               String
+  targetWeeklyChange Float?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  client    User       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  mealPlans MealPlan[]
+}
+
+model FoodItem {
+  id              String     @id @default(uuid())
+  name            String
+  caloriesPer100g Float
+  proteinPer100g  Float
+  carbsPer100g    Float
+  fatPer100g      Float
+  category        String?
+  createdBy       String?
+  createdAt       DateTime   @default(now())
+
+  mealItems MealItem[]
+
+  @@unique([name])
+}
+
+model MealPlan {
+  id                 String   @id @default(uuid())
+  nutritionProfileId String
+  clientId           String
+  date               DateTime @db.Date
+  targetCalories     Float?
+  targetProtein      Float?
+  targetCarbs        Float?
+  targetFat          Float?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  nutritionProfile NutritionProfile @relation(fields: [nutritionProfileId], references: [id], onDelete: Cascade)
+  client           User             @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  meals            Meal[]
+
+  @@unique([clientId, date])
+}
+
+model Meal {
+  id         String   @id @default(uuid())
+  mealPlanId String
+  type       String
+  time       String?
+  notes      String?
+  createdAt  DateTime @default(now())
+
+  mealPlan MealPlan   @relation(fields: [mealPlanId], references: [id], onDelete: Cascade)
+  items    MealItem[]
+}
+
+model MealItem {
+  id          String @id @default(uuid())
+  mealId      String
+  foodItemId  String
+  amountGrams Float
+
+  meal     Meal     @relation(fields: [mealId], references: [id], onDelete: Cascade)
+  foodItem FoodItem @relation(fields: [foodItemId], references: [id])
 }
