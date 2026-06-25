@@ -110,35 +110,55 @@ export class WorkoutsService {
   public async updateWorkout(id: string, trainerId: string, dto: UpdateWorkoutDto) {
     const workout = await this.prisma.workout.findUnique({
       where: { id },
-      include: { season: { include: { trainerClient: true } } },
+      include: {
+        season: { include: { trainerClient: true } },
+        workoutExercises: true,
+      },
     });
     if (!workout) throw new NotFoundException('Workout not found');
     if (workout.season.trainerClient.trainerId !== trainerId) throw new ForbiddenException();
 
-    // Replace all exercises if provided
     if (dto.exercises) {
-      await this.prisma.workoutExercise.deleteMany({ where: { workoutId: id } });
+      const existing = workout.workoutExercises;
+      const incomingIds = new Set(dto.exercises.map((ex) => ex.exerciseId));
+
+      // Delete exercises removed by trainer
+      const toDelete = existing.filter((we) => !incomingIds.has(we.exerciseId));
+      if (toDelete.length) {
+        await this.prisma.workoutExercise.deleteMany({
+          where: { id: { in: toDelete.map((we) => we.id) } },
+        });
+      }
+
+      // Update existing (preserve isDone) or create new
+      await this.prisma.$transaction(
+        dto.exercises.map((ex) => {
+          const match = existing.find((we) => we.exerciseId === ex.exerciseId);
+          const payload = {
+            sets: ex.sets,
+            reps: ex.reps,
+            weight: ex.weight ?? null,
+            setWeights: ex.setWeights ? JSON.stringify(ex.setWeights) : null,
+            supersetGroup: ex.supersetGroup ?? null,
+            supersetOrder: ex.supersetOrder ?? null,
+            order: ex.order,
+          };
+          if (match) {
+            return this.prisma.workoutExercise.update({
+              where: { id: match.id },
+              data: payload,
+            });
+          }
+          return this.prisma.workoutExercise.create({
+            data: { workoutId: id, exerciseId: ex.exerciseId, ...payload },
+          });
+        }),
+      );
     }
 
     const updated = await this.prisma.workout.update({
       where: { id },
-      data: {
-        ...(dto.notes !== undefined && { notes: dto.notes }),
-        ...(dto.exercises && {
-          workoutExercises: {
-            create: dto.exercises.map((ex) => ({
-              exerciseId: ex.exerciseId,
-              sets: ex.sets,
-              reps: ex.reps,
-              weight: ex.weight,
-              setWeights: ex.setWeights ? JSON.stringify(ex.setWeights) : undefined,
-              supersetGroup: ex.supersetGroup,
-              supersetOrder: ex.supersetOrder,
-              order: ex.order,
-            })),
-          },
-        }),
-      },
+      data: { ...(dto.notes !== undefined && { notes: dto.notes }) },
       include: {
         workoutExercises: { include: { exercise: true }, orderBy: { order: 'asc' } },
         completion: true,

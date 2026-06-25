@@ -180,12 +180,28 @@ export class NutritionService {
     return this.prisma.mealItem.delete({ where: { id: mealItemId } });
   }
 
-  async searchFood(query: string) {
-    return this.prisma.foodItem.findMany({
-      where: { name: { contains: query, mode: 'insensitive' } },
-      take: 20,
+  async searchFood(query: string, clientId?: string) {
+    const items = await this.prisma.foodItem.findMany({
+      where: query ? { name: { contains: query, mode: 'insensitive' } } : undefined,
       orderBy: { name: 'asc' },
     });
+
+    if (!clientId) return items.slice(0, 20);
+
+    const usageCounts = await this.prisma.mealItem.groupBy({
+      by: ['foodItemId'],
+      where: { meal: { mealPlan: { clientId } } },
+      _count: { foodItemId: true },
+    });
+
+    const countMap = new Map(usageCounts.map((u) => [u.foodItemId, u._count.foodItemId]));
+
+    return items
+      .sort((a, b) => {
+        const diff = (countMap.get(b.id) ?? 0) - (countMap.get(a.id) ?? 0);
+        return diff !== 0 ? diff : a.name.localeCompare(b.name);
+      })
+      .slice(0, 20);
   }
 
   async createFoodItem(dto: CreateFoodItemDto, userId: string) {

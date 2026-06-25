@@ -79,10 +79,11 @@ export class NutritionController {
   }
 
   @Get('food')
-  @ApiOperation({ summary: 'Поиск продуктов по названию' })
-  @ApiQuery({ name: 'q', required: true })
-  searchFood(@Query('q') q: string) {
-    return this.nutritionService.searchFood(q);
+  @ApiOperation({ summary: 'Поиск продуктов по названию. Передай clientId — результаты отсортируются по частоте использования этим клиентом' })
+  @ApiQuery({ name: 'q', required: false })
+  @ApiQuery({ name: 'clientId', required: false })
+  searchFood(@Query('q') q: string, @Query('clientId') clientId?: string) {
+    return this.nutritionService.searchFood(q ?? '', clientId);
   }
 
   @Post('food')
