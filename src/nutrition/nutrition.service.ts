@@ -5,6 +5,9 @@ import { CreateNutritionProfileDto } from './dto/create-nutrition-profile.dto';
 import { AddMealItemDto } from './dto/add-meal-item.dto';
 import { CreateFoodItemDto } from './dto/create-food-item.dto';
 import { AddMealDto } from './dto/add-meal.dto';
+import { UpdateFoodItemDto } from './dto/update-food-item.dto';
+import { UpdateMealDto } from './dto/update-meal.dto';
+import { UpdateMealItemDto } from './dto/update-meal-item.dto';
 
 @Injectable()
 export class NutritionService {
@@ -272,5 +275,65 @@ export class NutritionService {
         : 0,
       meals,
     };
+  }
+
+  async updateFoodItem(id: string, dto: UpdateFoodItemDto, userId: string) {
+    const foodItem = await this.prisma.foodItem.findUnique({ where: { id } });
+    if (!foodItem) throw new NotFoundException('Food item not found');
+
+    return this.prisma.foodItem.update({
+      where: { id },
+      data: dto,
+    });
+  }
+
+  async deleteFoodItem(id: string, userId: string) {
+    const foodItem = await this.prisma.foodItem.findUnique({ where: { id } });
+    if (!foodItem) throw new NotFoundException('Food item not found');
+
+    await this.prisma.foodItem.delete({ where: { id } });
+    return { message: 'Food item deleted' };
+  }
+
+  async updateMealItem(mealItemId: string, dto: UpdateMealItemDto, requesterId: string) {
+    const item = await this.prisma.mealItem.findUnique({
+      where: { id: mealItemId },
+      include: { meal: { include: { mealPlan: true } } },
+    });
+    if (!item) throw new NotFoundException('Meal item not found');
+    await this.verifyAccess(item.meal.mealPlan.clientId, requesterId);
+
+    return this.prisma.mealItem.update({
+      where: { id: mealItemId },
+      data: { amountGrams: dto.amountGrams },
+      include: { foodItem: true },
+    });
+  }
+
+  async deleteMeal(mealId: string, requesterId: string) {
+    const meal = await this.prisma.meal.findUnique({
+      where: { id: mealId },
+      include: { mealPlan: true },
+    });
+    if (!meal) throw new NotFoundException('Meal not found');
+    await this.verifyAccess(meal.mealPlan.clientId, requesterId);
+
+    await this.prisma.meal.delete({ where: { id: mealId } });
+    return { message: 'Meal deleted' };
+  }
+
+  async updateMeal(mealId: string, dto: UpdateMealDto, requesterId: string) {
+    const meal = await this.prisma.meal.findUnique({
+      where: { id: mealId },
+      include: { mealPlan: true },
+    });
+    if (!meal) throw new NotFoundException('Meal not found');
+    await this.verifyAccess(meal.mealPlan.clientId, requesterId);
+
+    return this.prisma.meal.update({
+      where: { id: mealId },
+      data: dto,
+      include: { items: { include: { foodItem: true } } },
+    });
   }
 }

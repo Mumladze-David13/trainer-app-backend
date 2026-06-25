@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Delete, Param, Body, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Patch, Param, Body, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/roles.decorator';
@@ -7,6 +7,9 @@ import { CreateNutritionProfileDto } from './dto/create-nutrition-profile.dto';
 import { AddMealItemDto } from './dto/add-meal-item.dto';
 import { CreateFoodItemDto } from './dto/create-food-item.dto';
 import { AddMealDto } from './dto/add-meal.dto';
+import { UpdateFoodItemDto } from './dto/update-food-item.dto';
+import { UpdateMealDto } from './dto/update-meal.dto';
+import { UpdateMealItemDto } from './dto/update-meal-item.dto';
 
 @ApiTags('Nutrition')
 @ApiBearerAuth('JWT')
@@ -86,5 +89,47 @@ export class NutritionController {
   @ApiOperation({ summary: 'Добавить новый продукт в справочник' })
   createFoodItem(@Body() dto: CreateFoodItemDto, @CurrentUser() user: any) {
     return this.nutritionService.createFoodItem(dto, user.id);
+  }
+
+  @Patch('food/:id')
+  @ApiOperation({ summary: 'Редактировать продукт в справочнике' })
+  updateFoodItem(
+    @Param('id') id: string,
+    @Body() dto: UpdateFoodItemDto,
+    @CurrentUser() user: any,
+  ) {
+    return this.nutritionService.updateFoodItem(id, dto, user.id);
+  }
+
+  @Delete('food/:id')
+  @ApiOperation({ summary: 'Удалить продукт из справочника' })
+  deleteFoodItem(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.nutritionService.deleteFoodItem(id, user.id);
+  }
+
+  @Patch('meal-items/:itemId')
+  @ApiOperation({ summary: 'Изменить количество грамм продукта в приёме пищи' })
+  updateMealItem(
+    @Param('itemId') itemId: string,
+    @Body() dto: UpdateMealItemDto,
+    @CurrentUser() user: any,
+  ) {
+    return this.nutritionService.updateMealItem(itemId, dto, user.id);
+  }
+
+  @Delete('meals/:mealId')
+  @ApiOperation({ summary: 'Удалить приём пищи целиком' })
+  deleteMeal(@Param('mealId') mealId: string, @CurrentUser() user: any) {
+    return this.nutritionService.deleteMeal(mealId, user.id);
+  }
+
+  @Patch('meals/:mealId')
+  @ApiOperation({ summary: 'Редактировать приём пищи (время, тип, заметки)' })
+  updateMeal(
+    @Param('mealId') mealId: string,
+    @Body() dto: UpdateMealDto,
+    @CurrentUser() user: any,
+  ) {
+    return this.nutritionService.updateMeal(mealId, dto, user.id);
   }
 }
