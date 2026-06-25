@@ -26,6 +26,12 @@ export class WorkoutExerciseDto {
   @IsNumber({}, { each: true })
   setWeights?: number[];
 
+  @ApiPropertyOptional({ example: [12, 10, 8], description: 'Повторения по каждому подходу' })
+  @IsOptional()
+  @IsArray()
+  @IsNumber({}, { each: true })
+  setReps?: number[];
+
   @ApiPropertyOptional({ example: 1, description: 'Номер суперсета' })
   @IsOptional()
   @IsInt()

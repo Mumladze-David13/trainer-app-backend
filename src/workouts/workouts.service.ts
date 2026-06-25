@@ -16,7 +16,7 @@ export class WorkoutsService {
     private readonly notificationsService: NotificationsService,
   ) {}
 
-  private parseSetWeights<T extends { workoutExercises: Array<{ setWeights: string | null } & Record<string, unknown>> }>(
+  private parseSetWeights<T extends { workoutExercises: Array<{ setWeights?: string | null; setReps?: string | null } & Record<string, unknown>> }>(
     workout: T,
   ): T {
     return {
@@ -24,6 +24,7 @@ export class WorkoutsService {
       workoutExercises: workout.workoutExercises.map((ex) => ({
         ...ex,
         setWeights: ex.setWeights ? (JSON.parse(ex.setWeights) as number[]) : null,
+        setReps: ex.setReps ? (JSON.parse(ex.setReps) as number[]) : null,
       })),
     };
   }
@@ -68,6 +69,7 @@ export class WorkoutsService {
             reps: ex.reps,
             weight: ex.weight,
             setWeights: ex.setWeights ? JSON.stringify(ex.setWeights) : undefined,
+            setReps: ex.setReps ? JSON.stringify(ex.setReps) : undefined,
             supersetGroup: ex.supersetGroup,
             supersetOrder: ex.supersetOrder,
             order: ex.order,
@@ -139,6 +141,7 @@ export class WorkoutsService {
             reps: ex.reps,
             weight: ex.weight ?? null,
             setWeights: ex.setWeights ? JSON.stringify(ex.setWeights) : null,
+            setReps: ex.setReps ? JSON.stringify(ex.setReps) : null,
             supersetGroup: ex.supersetGroup ?? null,
             supersetOrder: ex.supersetOrder ?? null,
             order: ex.order,

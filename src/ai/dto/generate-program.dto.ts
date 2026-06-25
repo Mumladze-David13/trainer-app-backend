@@ -78,6 +78,12 @@ class SaveWorkoutExerciseDto {
   @IsNumber({}, { each: true })
   setWeights?: number[];
 
+  @ApiPropertyOptional({ example: [12, 10, 8] })
+  @IsOptional()
+  @IsArray()
+  @IsNumber({}, { each: true })
+  setReps?: number[];
+
   @ApiPropertyOptional({ example: 1 })
   @IsOptional()
   @IsNumber()

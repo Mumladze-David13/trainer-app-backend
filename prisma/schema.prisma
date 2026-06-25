@@ -130,6 +130,7 @@ model WorkoutExercise {
   reps          Int     @default(10)
   weight        Float?
   setWeights    String?
+  setReps       String?
   supersetGroup Int?
   supersetOrder Int?
   order         Int     @default(0)
