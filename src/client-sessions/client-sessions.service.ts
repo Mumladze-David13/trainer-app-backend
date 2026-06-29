@@ -35,7 +35,7 @@ export class ClientSessionsService {
         exercises: {
           create: dto.exercises.map((ex) => ({
             exerciseId: ex.exerciseId ?? null,
-            activityName: ex.activityName ?? null,
+            clientActivityId: ex.clientActivityId ?? null,
             sets: ex.sets ?? null,
             reps: ex.reps ?? null,
             weight: ex.weight ?? null,
@@ -44,14 +44,14 @@ export class ClientSessionsService {
           })),
         },
       },
-      include: { exercises: { include: { exercise: true }, orderBy: { order: 'asc' } } },
+      include: { exercises: { include: { exercise: true, clientActivity: true }, orderBy: { order: 'asc' } } },
     });
   }
 
   async findAll(clientId: string) {
     return this.prisma.clientSession.findMany({
       where: { clientId },
-      include: { exercises: { include: { exercise: true }, orderBy: { order: 'asc' } } },
+      include: { exercises: { include: { exercise: true, clientActivity: true }, orderBy: { order: 'asc' } } },
       orderBy: { date: 'desc' },
     });
   }
@@ -59,7 +59,7 @@ export class ClientSessionsService {
   async findOne(id: string, clientId: string) {
     const session = await this.prisma.clientSession.findUnique({
       where: { id },
-      include: { exercises: { include: { exercise: true }, orderBy: { order: 'asc' } } },
+      include: { exercises: { include: { exercise: true, clientActivity: true }, orderBy: { order: 'asc' } } },
     });
     if (!session) throw new NotFoundException('Занятие не найдено');
     if (session.clientId !== clientId) throw new ForbiddenException();
@@ -77,7 +77,7 @@ export class ClientSessionsService {
         data: dto.exercises.map((ex) => ({
           sessionId: id,
           exerciseId: ex.exerciseId ?? null,
-          activityName: ex.activityName ?? null,
+          clientActivityId: ex.clientActivityId ?? null,
           sets: ex.sets ?? null,
           reps: ex.reps ?? null,
           weight: ex.weight ?? null,
@@ -90,7 +90,7 @@ export class ClientSessionsService {
     return this.prisma.clientSession.update({
       where: { id },
       data: { ...(dto.notes !== undefined && { notes: dto.notes }) },
-      include: { exercises: { include: { exercise: true }, orderBy: { order: 'asc' } } },
+      include: { exercises: { include: { exercise: true, clientActivity: true }, orderBy: { order: 'asc' } } },
     });
   }
 
@@ -108,7 +108,7 @@ export class ClientSessionsService {
     if (!relation) throw new NotFoundException('Клиент не найден');
     return this.prisma.clientSession.findMany({
       where: { clientId },
-      include: { exercises: { include: { exercise: true }, orderBy: { order: 'asc' } } },
+      include: { exercises: { include: { exercise: true, clientActivity: true }, orderBy: { order: 'asc' } } },
       orderBy: { date: 'desc' },
     });
   }
@@ -153,8 +153,8 @@ export class ClientSessionsService {
     }
 
     for (const session of clientSessions) {
-      const exData = session.exercises.map((ex) => ({
-        metValue: ex.exercise?.metValue ?? null,
+      const exData = session.exercises.map((ex: any) => ({
+        metValue: ex.clientActivity?.metValue ?? ex.exercise?.metValue ?? null,
         durationMinutes: ex.durationMinutes,
         sets: ex.sets,
         reps: ex.reps,

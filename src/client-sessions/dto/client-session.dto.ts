@@ -5,15 +5,15 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 
 export class ClientSessionExerciseDto {
-  @ApiPropertyOptional({ example: 'uuid-упражнения', description: 'ID упражнения из библиотеки тренера (если есть)' })
+  @ApiPropertyOptional({ example: 'uuid-упражнения', description: 'ID упражнения из библиотеки тренера' })
   @IsOptional()
   @IsUUID()
   exerciseId?: string;
 
-  @ApiPropertyOptional({ example: 'Бег', description: 'Название активности (если нет в библиотеке)' })
+  @ApiPropertyOptional({ example: 'uuid-активности', description: 'ID активности из справочника клиента' })
   @IsOptional()
-  @IsString()
-  activityName?: string;
+  @IsUUID()
+  clientActivityId?: string;
 
   @ApiPropertyOptional({ example: 3 })
   @IsOptional()
