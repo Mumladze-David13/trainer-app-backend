@@ -15,6 +15,11 @@ enum Role {
   TRAINER_CLIENT
 }
 
+enum WeightType {
+  WEIGHT_KG
+  BODYWEIGHT
+}
+
 enum SubscriptionPlan {
   FREE
   BASIC
@@ -49,6 +54,8 @@ model User {
 
   nutritionProfile  NutritionProfile?
   mealPlans         MealPlan[]
+  weightLogs        WeightLog[]
+  clientSessions    ClientSession[]
 }
 
 model TrainerSettings {
@@ -82,15 +89,18 @@ model ClientSettings {
 }
 
 model Exercise {
-  id          String   @id @default(uuid())
+  id          String     @id @default(uuid())
   name        String
   description String?
   trainerId   String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  weightType  WeightType @default(WEIGHT_KG)
+  metValue    Float?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
 
-  trainer          User              @relation(fields: [trainerId], references: [id], onDelete: Cascade)
-  workoutExercises WorkoutExercise[]
+  trainer                User                   @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  workoutExercises       WorkoutExercise[]
+  clientSessionExercises ClientSessionExercise[]
 
   @@unique([name, trainerId])
 }
@@ -123,18 +133,19 @@ model Workout {
 }
 
 model WorkoutExercise {
-  id            String  @id @default(uuid())
-  workoutId     String
-  exerciseId    String
-  sets          Int     @default(1)
-  reps          Int     @default(10)
-  weight        Float?
-  setWeights    String?
-  setReps       String?
-  supersetGroup Int?
-  supersetOrder Int?
-  order         Int     @default(0)
-  isDone        Boolean @default(false)
+  id              String  @id @default(uuid())
+  workoutId       String
+  exerciseId      String
+  sets            Int     @default(1)
+  reps            Int     @default(10)
+  weight          Float?
+  setWeights      String?
+  setReps         String?
+  durationMinutes Float?
+  supersetGroup   Int?
+  supersetOrder   Int?
+  order           Int     @default(0)
+  isDone          Boolean @default(false)
 
   workout  Workout  @relation(fields: [workoutId], references: [id], onDelete: Cascade)
   exercise Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
@@ -261,4 +272,43 @@ model MealItem {
 
   meal     Meal     @relation(fields: [mealId], references: [id], onDelete: Cascade)
   foodItem FoodItem @relation(fields: [foodItemId], references: [id])
+}
+
+model WeightLog {
+  id       String   @id @default(uuid())
+  clientId String
+  weightKg Float
+  date     DateTime @default(now())
+  notes    String?
+
+  client User @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, date])
+}
+
+model ClientSession {
+  id        String   @id @default(uuid())
+  clientId  String
+  date      DateTime @default(now())
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  client    User                    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  exercises ClientSessionExercise[]
+}
+
+model ClientSessionExercise {
+  id              String  @id @default(uuid())
+  sessionId       String
+  exerciseId      String?
+  activityName    String?
+  sets            Int?
+  reps            Int?
+  weight          Float?
+  durationMinutes Float?
+  order           Int     @default(0)
+
+  session  ClientSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  exercise Exercise?     @relation(fields: [exerciseId], references: [id])
 }

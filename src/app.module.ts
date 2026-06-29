@@ -13,6 +13,8 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { ChatModule } from './chat/chat.module';
 import { AiModule } from './ai/ai.module';
 import { NutritionModule } from './nutrition/nutrition.module';
+import { WeightLogModule } from './weight-log/weight-log.module';
+import { ClientSessionsModule } from './client-sessions/client-sessions.module';
 
 @Module({
   imports: [
@@ -29,6 +31,8 @@ import { NutritionModule } from './nutrition/nutrition.module';
     ChatModule,
     AiModule,
     NutritionModule,
+    WeightLogModule,
+    ClientSessionsModule,
   ],
 })
 export class AppModule {}

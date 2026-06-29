@@ -7,6 +7,6 @@ import { AnonymizerService } from './anonymizer.service';
 @Module({
   controllers: [AiController],
   providers: [AiService, AiGateway, AnonymizerService],
-  exports: [AiService],
+  exports: [AiService, AiGateway],
 })
 export class AiModule {}

@@ -70,6 +70,7 @@ export class WorkoutsService {
             weight: ex.weight,
             setWeights: ex.setWeights ? JSON.stringify(ex.setWeights) : undefined,
             setReps: ex.setReps ? JSON.stringify(ex.setReps) : undefined,
+            durationMinutes: ex.durationMinutes,
             supersetGroup: ex.supersetGroup,
             supersetOrder: ex.supersetOrder,
             order: ex.order,
@@ -119,6 +120,9 @@ export class WorkoutsService {
     });
     if (!workout) throw new NotFoundException('Workout not found');
     if (workout.season.trainerClient.trainerId !== trainerId) throw new ForbiddenException();
+    if (workout.isCompleted) {
+      throw new ForbiddenException('Тренировка уже завершена клиентом и не может быть изменена');
+    }
 
     if (dto.exercises) {
       const existing = workout.workoutExercises;
@@ -142,6 +146,7 @@ export class WorkoutsService {
             weight: ex.weight ?? null,
             setWeights: ex.setWeights ? JSON.stringify(ex.setWeights) : null,
             setReps: ex.setReps ? JSON.stringify(ex.setReps) : null,
+            durationMinutes: ex.durationMinutes ?? null,
             supersetGroup: ex.supersetGroup ?? null,
             supersetOrder: ex.supersetOrder ?? null,
             order: ex.order,

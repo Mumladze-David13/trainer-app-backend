@@ -1,5 +1,6 @@
-import { IsString, IsOptional, MinLength } from 'class-validator';
+import { IsString, IsOptional, MinLength, IsEnum, IsNumber, Min } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { WeightType } from '@prisma/client';
 
 export class CreateExerciseDto {
   @ApiProperty({ example: 'Приседания со штангой', minLength: 2 })
@@ -11,6 +12,17 @@ export class CreateExerciseDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @ApiPropertyOptional({ enum: WeightType, default: WeightType.WEIGHT_KG, description: 'Тип веса: с весом (кг) или без веса (плитки/собственный вес)' })
+  @IsOptional()
+  @IsEnum(WeightType)
+  weightType?: WeightType;
+
+  @ApiPropertyOptional({ example: 3.5, description: 'MET-коэффициент для расчёта калорий (для кардио-упражнений)' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  metValue?: number;
 }
 
 export class UpdateExerciseDto {
@@ -24,4 +36,15 @@ export class UpdateExerciseDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @ApiPropertyOptional({ enum: WeightType })
+  @IsOptional()
+  @IsEnum(WeightType)
+  weightType?: WeightType;
+
+  @ApiPropertyOptional({ example: 3.5 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  metValue?: number;
 }

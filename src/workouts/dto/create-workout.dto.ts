@@ -32,6 +32,11 @@ export class WorkoutExerciseDto {
   @IsNumber({}, { each: true })
   setReps?: number[];
 
+  @ApiPropertyOptional({ example: 30, description: 'Длительность упражнения в минутах (для расчёта калорий)' })
+  @IsOptional()
+  @IsNumber()
+  durationMinutes?: number;
+
   @ApiPropertyOptional({ example: 1, description: 'Номер суперсета' })
   @IsOptional()
   @IsInt()
