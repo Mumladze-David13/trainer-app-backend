@@ -36,8 +36,12 @@ model User {
   lastName  String
   role      Role
   fcmToken  String?
+  gymId     String?
+  address   Json?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  gym Gym? @relation(fields: [gymId], references: [id], onDelete: SetNull)
 
   // As trainer: exercises and clients belong to this trainer
   exercises      Exercise[]
@@ -329,4 +333,14 @@ model ClientSessionExercise {
   session        ClientSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   exercise       Exercise?       @relation(fields: [exerciseId], references: [id])
   clientActivity ClientActivity? @relation(fields: [clientActivityId], references: [id])
+}
+
+model Gym {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  address   Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users User[]
 }

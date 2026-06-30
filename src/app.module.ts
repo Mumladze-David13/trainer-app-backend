@@ -16,6 +16,7 @@ import { NutritionModule } from './nutrition/nutrition.module';
 import { WeightLogModule } from './weight-log/weight-log.module';
 import { ClientSessionsModule } from './client-sessions/client-sessions.module';
 import { ClientActivitiesModule } from './client-activities/client-activities.module';
+import { GymsModule } from './gyms/gyms.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { ClientActivitiesModule } from './client-activities/client-activities.mo
     WeightLogModule,
     ClientSessionsModule,
     ClientActivitiesModule,
+    GymsModule,
   ],
 })
 export class AppModule {}
