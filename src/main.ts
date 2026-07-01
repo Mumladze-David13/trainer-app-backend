@@ -7,9 +7,12 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   app.setGlobalPrefix('api');
-
+  
   app.enableCors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:4200',
+    origin: [
+      process.env.FRONTEND_URL || 'http://localhost:4200',
+      process.env.FLUTTER_URL || 'http://144.31.189.154:8081',
+    ],
     credentials: true,
   });
 
