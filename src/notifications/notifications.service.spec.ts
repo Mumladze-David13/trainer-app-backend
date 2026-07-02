@@ -115,12 +115,16 @@ describe('NotificationsService', () => {
       mockSend.mockResolvedValue('message-id');
       const text = 'Привет!';
 
-      await service.notifyNewMessage('recipient-1', 'Мария', text, 'conv-1');
+      await service.notifyNewMessage('recipient-1', 'Мария', text, 'conv-1', 'sender-1');
 
       expect(mockSend).toHaveBeenCalledWith(
         expect.objectContaining({
           notification: expect.objectContaining({ body: text }),
-          data: expect.objectContaining({ type: 'NEW_MESSAGE', conversationId: 'conv-1' }),
+          data: expect.objectContaining({
+            type: 'NEW_MESSAGE',
+            conversationId: 'conv-1',
+            senderId: 'sender-1',
+          }),
         }),
       );
     });
@@ -130,7 +134,7 @@ describe('NotificationsService', () => {
       mockSend.mockResolvedValue('message-id');
       const longText = 'a'.repeat(150);
 
-      await service.notifyNewMessage('recipient-1', 'Мария', longText, 'conv-1');
+      await service.notifyNewMessage('recipient-1', 'Мария', longText, 'conv-1', 'sender-1');
 
       const call = mockSend.mock.calls[0][0];
       expect(call.notification.body).toHaveLength(103); // 100 + '...'
@@ -140,7 +144,7 @@ describe('NotificationsService', () => {
     it('should do nothing when recipient has no fcmToken', async () => {
       mockPrismaService.user.findUnique.mockResolvedValue({ fcmToken: null });
 
-      await service.notifyNewMessage('recipient-1', 'Мария', 'Привет', 'conv-1');
+      await service.notifyNewMessage('recipient-1', 'Мария', 'Привет', 'conv-1', 'sender-1');
 
       expect(mockSend).not.toHaveBeenCalled();
     });

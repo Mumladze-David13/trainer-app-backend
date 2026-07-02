@@ -200,6 +200,7 @@ describe('ChatService', () => {
         'Иван Иванов',
         'Привет!',
         'conv-1',
+        'trainer-1',
       );
       expect(result).toEqual(createdMessage);
     });
@@ -212,6 +213,7 @@ describe('ChatService', () => {
         expect.any(String),
         'Ок',
         'conv-1',
+        'client-1',
       );
     });
 

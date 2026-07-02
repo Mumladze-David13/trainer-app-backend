@@ -48,6 +48,7 @@ export class NotificationsService implements OnModuleInit {
     senderName: string,
     text: string,
     conversationId: string,
+    senderId: string,
   ) {
     const recipient = await this.prisma.user.findUnique({
       where: { id: recipientId },
@@ -57,7 +58,7 @@ export class NotificationsService implements OnModuleInit {
     await this.sendPush(recipient.fcmToken, {
       title: senderName,
       body: text.length > 100 ? text.substring(0, 100) + '...' : text,
-      data: { type: 'NEW_MESSAGE', conversationId },
+      data: { type: 'NEW_MESSAGE', conversationId, senderId: senderId.toString() },
     });
   }
 

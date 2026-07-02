@@ -107,6 +107,7 @@ export class ChatService {
         senderUser ? `${senderUser.firstName} ${senderUser.lastName}` : '',
         text,
         conversationId,
+        senderId,
       );
     }
 
