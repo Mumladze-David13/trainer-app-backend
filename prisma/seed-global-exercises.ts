@@ -6,6 +6,9 @@ const prisma = new PrismaClient();
 
 const IMAGE_BASE_URL = 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/';
 const EXERCISES_DIR = path.join(__dirname, 'seed-data', 'free-exercise-db');
+const NAME_TRANSLATIONS: Record<string, string> = JSON.parse(
+  fs.readFileSync(path.join(__dirname, 'seed-data', 'name-translations-ru.json'), 'utf-8'),
+);
 
 const CATEGORY_MAP: Record<string, string> = {
   strength: 'силовые',
@@ -49,12 +52,13 @@ async function main() {
     const category = entry.category ? CATEGORY_MAP[entry.category] ?? entry.category : null;
     const equipment = entry.equipment ? EQUIPMENT_MAP[entry.equipment] ?? entry.equipment : null;
     const imageUrl = entry.images?.[0] ? IMAGE_BASE_URL + entry.images[0] : null;
+    const name = NAME_TRANSLATIONS[entry.id] ?? entry.name;
 
     await prisma.globalExercise.upsert({
-      where: { name: entry.name },
+      where: { name },
       update: {},
       create: {
-        name: entry.name,
+        name,
         category,
         equipment,
         level: entry.level ?? null,
