@@ -61,7 +61,7 @@ export class AiService {
       );
     }
 
-    const exercises = await this.prisma.exercise.findMany({
+    const exercises = await this.prisma.trainerExercise.findMany({
       select: { id: true, name: true },
       orderBy: { name: 'asc' },
     });

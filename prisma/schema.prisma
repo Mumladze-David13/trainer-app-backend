@@ -44,7 +44,7 @@ model User {
   gym Gym? @relation(fields: [gymId], references: [id], onDelete: SetNull)
 
   // As trainer: exercises and clients belong to this trainer
-  exercises      Exercise[]
+  exercises      TrainerExercise[]
   trainerClients TrainerClient[] @relation("TrainerToClient")
   settings       TrainerSettings?
 
@@ -94,21 +94,40 @@ model ClientSettings {
   trainerId String?
 }
 
-model Exercise {
-  id          String     @id @default(uuid())
-  name        String
-  description String?
-  trainerId   String
-  weightType  WeightType @default(WEIGHT_KG)
-  metValue    Float?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+model TrainerExercise {
+  id               String     @id @default(uuid())
+  name             String
+  description      String?
+  trainerId        String
+  weightType       WeightType @default(WEIGHT_KG)
+  metValue         Float?
+  globalExerciseId String?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
 
   trainer                User                   @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  globalExercise          GlobalExercise?        @relation(fields: [globalExerciseId], references: [id], onDelete: SetNull)
   workoutExercises       WorkoutExercise[]
   clientSessionExercises ClientSessionExercise[]
 
   @@unique([name, trainerId])
+}
+
+// Глобальный справочник (из free-exercise-db + добавленные администратором)
+model GlobalExercise {
+  id               String   @id @default(uuid())
+  name             String   @unique
+  description      String?
+  category         String?  // силовые | растяжка | кардио | плиометрика
+  equipment        String?  // штанга | гантели | собственный вес | тренажёр
+  level            String?  // beginner | intermediate | advanced
+  primaryMuscles   String[]
+  secondaryMuscles String[]
+  imageUrl         String?
+  sourceId         String?  // id из free-exercise-db (legacy_xxx для мигрированных)
+  createdAt        DateTime @default(now())
+
+  trainerExercises TrainerExercise[]
 }
 
 model Season {
@@ -153,8 +172,8 @@ model WorkoutExercise {
   order           Int     @default(0)
   isDone          Boolean @default(false)
 
-  workout  Workout  @relation(fields: [workoutId], references: [id], onDelete: Cascade)
-  exercise Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+  workout  Workout         @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+  exercise TrainerExercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
 }
 
 model WorkoutCompletion {
@@ -330,9 +349,9 @@ model ClientSessionExercise {
   durationMinutes  Float?
   order            Int     @default(0)
 
-  session        ClientSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  exercise       Exercise?       @relation(fields: [exerciseId], references: [id])
-  clientActivity ClientActivity? @relation(fields: [clientActivityId], references: [id])
+  session        ClientSession    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  exercise       TrainerExercise? @relation(fields: [exerciseId], references: [id])
+  clientActivity ClientActivity?  @relation(fields: [clientActivityId], references: [id])
 }
 
 model Gym {

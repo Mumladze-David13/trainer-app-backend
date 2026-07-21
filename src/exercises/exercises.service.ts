@@ -17,53 +17,53 @@ export class ExercisesService {
   ) {}
 
   public async findAll(trainerId: string) {
-    return this.prisma.exercise.findMany({
+    return this.prisma.trainerExercise.findMany({
       where: { trainerId },
       orderBy: { name: 'asc' },
     });
   }
 
   public async create(trainerId: string, dto: CreateExerciseDto) {
-    const existing = await this.prisma.exercise.findUnique({
+    const existing = await this.prisma.trainerExercise.findUnique({
       where: { name_trainerId: { name: dto.name, trainerId } },
     });
     if (existing) throw new ConflictException('Exercise with this name already exists');
 
-    return this.prisma.exercise.create({
+    return this.prisma.trainerExercise.create({
       data: { ...dto, trainerId },
     });
   }
 
   public async update(id: string, trainerId: string, dto: UpdateExerciseDto) {
-    const exercise = await this.prisma.exercise.findUnique({ where: { id } });
+    const exercise = await this.prisma.trainerExercise.findUnique({ where: { id } });
     if (!exercise) throw new NotFoundException('Exercise not found');
     if (exercise.trainerId !== trainerId) throw new ForbiddenException();
 
     if (dto.name) {
-      const existing = await this.prisma.exercise.findFirst({
+      const existing = await this.prisma.trainerExercise.findFirst({
         where: { name: dto.name, trainerId, NOT: { id } },
       });
       if (existing) throw new ConflictException('Exercise with this name already exists');
     }
 
-    return this.prisma.exercise.update({
+    return this.prisma.trainerExercise.update({
       where: { id },
       data: dto,
     });
   }
 
   public async remove(id: string, trainerId: string) {
-    const exercise = await this.prisma.exercise.findUnique({ where: { id } });
+    const exercise = await this.prisma.trainerExercise.findUnique({ where: { id } });
     if (!exercise) throw new NotFoundException('Exercise not found');
     if (exercise.trainerId !== trainerId) throw new ForbiddenException();
 
-    await this.prisma.exercise.delete({ where: { id } });
+    await this.prisma.trainerExercise.delete({ where: { id } });
     return { message: 'Exercise deleted' };
   }
 
   // Получить историю весов для упражнения по клиенту
   private async getWeightHistory(exerciseId: string, clientId: string) {
-    const exercise = await this.prisma.exercise.findUnique({ where: { id: exerciseId } });
+    const exercise = await this.prisma.trainerExercise.findUnique({ where: { id: exerciseId } });
     if (!exercise) throw new NotFoundException('Exercise not found');
 
     const workoutExercises = await this.prisma.workoutExercise.findMany({
