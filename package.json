@@ -13,7 +13,8 @@
     "prisma:studio": "prisma studio",
     "prisma:seed": "ts-node prisma/seed.ts",
     "seed:nutrition": "ts-node prisma/seed-nutrition.ts",
-    "seed:global-exercises": "ts-node prisma/seed-global-exercises.ts"
+    "seed:global-exercises": "ts-node prisma/seed-global-exercises.ts",
+    "fix:global-exercise-names": "ts-node prisma/fix-global-exercise-names.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.105.0",

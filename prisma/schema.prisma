@@ -117,6 +117,7 @@ model TrainerExercise {
 model GlobalExercise {
   id               String   @id @default(uuid())
   name             String   @unique
+  nameRus          String?
   description      String?
   category         String?  // силовые | растяжка | кардио | плиометрика
   equipment        String?  // штанга | гантели | собственный вес | тренажёр

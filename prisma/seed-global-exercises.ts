@@ -52,13 +52,14 @@ async function main() {
     const category = entry.category ? CATEGORY_MAP[entry.category] ?? entry.category : null;
     const equipment = entry.equipment ? EQUIPMENT_MAP[entry.equipment] ?? entry.equipment : null;
     const imageUrl = entry.images?.[0] ? IMAGE_BASE_URL + entry.images[0] : null;
-    const name = NAME_TRANSLATIONS[entry.id] ?? entry.name;
+    const nameRus = NAME_TRANSLATIONS[entry.id] ?? null;
 
     await prisma.globalExercise.upsert({
-      where: { name },
+      where: { name: entry.name },
       update: {},
       create: {
-        name,
+        name: entry.name,
+        nameRus,
         category,
         equipment,
         level: entry.level ?? null,
