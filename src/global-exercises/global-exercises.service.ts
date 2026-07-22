@@ -5,9 +5,9 @@ import { QueryGlobalExerciseDto } from './dto/query-global-exercise.dto';
 import { ImportGlobalExerciseDto } from './dto/import-global-exercise.dto';
 
 function weightTypeForEquipment(equipment: string | null): WeightType {
-  if (equipment === 'собственный вес') return WeightType.BODYWEIGHT;
+  if (equipment === 'штанга' || equipment === 'гантели') return WeightType.WEIGHT_KG;
   if (equipment === 'тренажёр') return WeightType.MACHINE;
-  return WeightType.WEIGHT_KG;
+  return WeightType.BODYWEIGHT;
 }
 
 @Injectable()
