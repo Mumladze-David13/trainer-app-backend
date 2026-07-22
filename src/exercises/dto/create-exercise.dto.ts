@@ -23,6 +23,11 @@ export class CreateExerciseDto {
   @IsNumber()
   @Min(0)
   metValue?: number;
+
+  @ApiPropertyOptional({ example: 'штанга', description: 'Оборудование, необходимое для упражнения' })
+  @IsOptional()
+  @IsString()
+  equipment?: string;
 }
 
 export class UpdateExerciseDto {
@@ -47,4 +52,9 @@ export class UpdateExerciseDto {
   @IsNumber()
   @Min(0)
   metValue?: number;
+
+  @ApiPropertyOptional({ example: 'штанга', description: 'Оборудование, необходимое для упражнения' })
+  @IsOptional()
+  @IsString()
+  equipment?: string;
 }
