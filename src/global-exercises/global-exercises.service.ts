@@ -41,6 +41,7 @@ export class GlobalExercisesService {
         description: g.description,
         trainerId,
         weightType: weightTypeForEquipment(g.equipment),
+        equipment: g.equipment,
         globalExerciseId: g.id,
       })),
       skipDuplicates: true,

@@ -28,6 +28,11 @@ const EQUIPMENT_MAP: Record<string, string> = {
   'body only': 'собственный вес',
   machine: 'тренажёр',
   cable: 'тренажёр',
+  bands: 'эспандер',
+  'exercise ball': 'фитбол',
+  'foam roll': 'массажный ролик',
+  'medicine ball': 'медбол',
+  other: 'другое',
 };
 
 interface FreeExerciseDbEntry {
@@ -56,7 +61,11 @@ async function main() {
 
     await prisma.globalExercise.upsert({
       where: { name: entry.name },
-      update: {},
+      update: {
+        nameRus,
+        category,
+        equipment,
+      },
       create: {
         name: entry.name,
         nameRus,

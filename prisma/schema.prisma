@@ -101,6 +101,7 @@ model TrainerExercise {
   trainerId        String
   weightType       WeightType @default(WEIGHT_KG)
   metValue         Float?
+  equipment        String?
   globalExerciseId String?
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
