@@ -365,3 +365,36 @@ model Gym {
 
   users User[]
 }
+
+enum PoseView {
+  side
+  front
+}
+
+model PoseCalibrationFrame {
+  id                  String   @id @default(uuid())
+  userId              String
+  createdAt           DateTime @default(now())
+  exercise            String
+  view                PoseView
+  phase               String?
+  formScore           Float?
+  imageWidth          Int?
+  imageHeight         Int?
+  angles              Json
+  calibrationMetrics  Json
+
+  @@index([exercise, view])
+}
+
+model PoseDatasetCase {
+  id        String   @id @default(uuid())
+  caseId    String   @unique
+  userId    String
+  createdAt DateTime @default(now())
+  exercise  String
+  viewMode  String
+  label     String
+  comment   String?
+  frames    Json
+}

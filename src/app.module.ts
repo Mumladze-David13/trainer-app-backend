@@ -18,6 +18,7 @@ import { ClientSessionsModule } from './client-sessions/client-sessions.module';
 import { ClientActivitiesModule } from './client-activities/client-activities.module';
 import { GymsModule } from './gyms/gyms.module';
 import { GlobalExercisesModule } from './global-exercises/global-exercises.module';
+import { PoseAnalysisModule } from './pose-analysis/pose-analysis.module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { GlobalExercisesModule } from './global-exercises/global-exercises.modul
     ClientActivitiesModule,
     GymsModule,
     GlobalExercisesModule,
+    PoseAnalysisModule,
   ],
 })
 export class AppModule {}

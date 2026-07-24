@@ -1,13 +1,19 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // Кейсы калибровки позы (pose-analysis/dataset-cases) могут содержать сотни
+  // кадров с landmarks — отключаем встроенный body-parser (лимит 100kb) и
+  // регистрируем свой с увеличенным лимитом.
+  const app = await NestFactory.create(AppModule, { bodyParser: false });
+  app.use(json({ limit: '20mb' }));
+  app.use(urlencoded({ extended: true, limit: '20mb' }));
 
   app.setGlobalPrefix('api');
-  
+
   app.enableCors({
     origin: [
       process.env.FRONTEND_URL || 'http://localhost:4200',
