@@ -19,6 +19,7 @@ export class ExercisesService {
   public async findAll(trainerId: string) {
     return this.prisma.trainerExercise.findMany({
       where: { trainerId },
+      include: { globalExercise: { select: { imageUrl: true } } },
       orderBy: { name: 'asc' },
     });
   }

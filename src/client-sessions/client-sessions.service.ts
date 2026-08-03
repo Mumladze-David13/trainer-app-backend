@@ -44,14 +44,30 @@ export class ClientSessionsService {
           })),
         },
       },
-      include: { exercises: { include: { exercise: true, clientActivity: true }, orderBy: { order: 'asc' } } },
+      include: {
+        exercises: {
+          include: {
+            exercise: { include: { globalExercise: { select: { imageUrl: true } } } },
+            clientActivity: true,
+          },
+          orderBy: { order: 'asc' },
+        },
+      },
     });
   }
 
   async findAll(clientId: string) {
     return this.prisma.clientSession.findMany({
       where: { clientId },
-      include: { exercises: { include: { exercise: true, clientActivity: true }, orderBy: { order: 'asc' } } },
+      include: {
+        exercises: {
+          include: {
+            exercise: { include: { globalExercise: { select: { imageUrl: true } } } },
+            clientActivity: true,
+          },
+          orderBy: { order: 'asc' },
+        },
+      },
       orderBy: { date: 'desc' },
     });
   }
@@ -59,7 +75,15 @@ export class ClientSessionsService {
   async findOne(id: string, clientId: string) {
     const session = await this.prisma.clientSession.findUnique({
       where: { id },
-      include: { exercises: { include: { exercise: true, clientActivity: true }, orderBy: { order: 'asc' } } },
+      include: {
+        exercises: {
+          include: {
+            exercise: { include: { globalExercise: { select: { imageUrl: true } } } },
+            clientActivity: true,
+          },
+          orderBy: { order: 'asc' },
+        },
+      },
     });
     if (!session) throw new NotFoundException('Занятие не найдено');
     if (session.clientId !== clientId) throw new ForbiddenException();
@@ -90,7 +114,15 @@ export class ClientSessionsService {
     return this.prisma.clientSession.update({
       where: { id },
       data: { ...(dto.notes !== undefined && { notes: dto.notes }) },
-      include: { exercises: { include: { exercise: true, clientActivity: true }, orderBy: { order: 'asc' } } },
+      include: {
+        exercises: {
+          include: {
+            exercise: { include: { globalExercise: { select: { imageUrl: true } } } },
+            clientActivity: true,
+          },
+          orderBy: { order: 'asc' },
+        },
+      },
     });
   }
 
@@ -108,7 +140,15 @@ export class ClientSessionsService {
     if (!relation) throw new NotFoundException('Клиент не найден');
     return this.prisma.clientSession.findMany({
       where: { clientId },
-      include: { exercises: { include: { exercise: true, clientActivity: true }, orderBy: { order: 'asc' } } },
+      include: {
+        exercises: {
+          include: {
+            exercise: { include: { globalExercise: { select: { imageUrl: true } } } },
+            clientActivity: true,
+          },
+          orderBy: { order: 'asc' },
+        },
+      },
       orderBy: { date: 'desc' },
     });
   }

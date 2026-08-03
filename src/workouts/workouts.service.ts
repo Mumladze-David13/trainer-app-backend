@@ -78,7 +78,7 @@ export class WorkoutsService {
         },
       },
       include: {
-        workoutExercises: { include: { exercise: true }, orderBy: { order: 'asc' } },
+        workoutExercises: { include: { exercise: { include: { globalExercise: { select: { imageUrl: true } } } } }, orderBy: { order: 'asc' } },
         completion: true,
       },
     });
@@ -101,7 +101,7 @@ export class WorkoutsService {
     const workout = await this.prisma.workout.findUnique({
       where: { id },
       include: {
-        workoutExercises: { include: { exercise: true }, orderBy: { order: 'asc' } },
+        workoutExercises: { include: { exercise: { include: { globalExercise: { select: { imageUrl: true } } } } }, orderBy: { order: 'asc' } },
         completion: true,
         season: { include: { trainerClient: true } },
       },
@@ -168,7 +168,7 @@ export class WorkoutsService {
       where: { id },
       data: { ...(dto.notes !== undefined && { notes: dto.notes }) },
       include: {
-        workoutExercises: { include: { exercise: true }, orderBy: { order: 'asc' } },
+        workoutExercises: { include: { exercise: { include: { globalExercise: { select: { imageUrl: true } } } } }, orderBy: { order: 'asc' } },
         completion: true,
       },
     });
@@ -214,7 +214,7 @@ export class WorkoutsService {
     return this.prisma.workout.findUnique({
       where: { id: workoutId },
       include: {
-        workoutExercises: { include: { exercise: true }, orderBy: { order: 'asc' } },
+        workoutExercises: { include: { exercise: { include: { globalExercise: { select: { imageUrl: true } } } } }, orderBy: { order: 'asc' } },
         completion: true,
       },
     });
@@ -258,7 +258,7 @@ export class WorkoutsService {
       where: { id: workoutId },
       data: { isCompleted: true },
       include: {
-        workoutExercises: { include: { exercise: true }, orderBy: { order: 'asc' } },
+        workoutExercises: { include: { exercise: { include: { globalExercise: { select: { imageUrl: true } } } } }, orderBy: { order: 'asc' } },
         completion: true,
       },
     });
@@ -276,7 +276,7 @@ export class WorkoutsService {
       include: {
         workouts: {
           include: {
-            workoutExercises: { include: { exercise: true }, orderBy: { order: 'asc' } },
+            workoutExercises: { include: { exercise: { include: { globalExercise: { select: { imageUrl: true } } } } }, orderBy: { order: 'asc' } },
             completion: true,
           },
           orderBy: { date: 'asc' },
