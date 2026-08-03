@@ -19,6 +19,8 @@ import { ClientActivitiesModule } from './client-activities/client-activities.mo
 import { GymsModule } from './gyms/gyms.module';
 import { GlobalExercisesModule } from './global-exercises/global-exercises.module';
 import { PoseAnalysisModule } from './pose-analysis/pose-analysis.module';
+import { CloudinaryModule } from './cloudinary/cloudinary.module';
+import { PhotosModule } from './photos/photos.module';
 
 @Module({
   imports: [
@@ -41,6 +43,8 @@ import { PoseAnalysisModule } from './pose-analysis/pose-analysis.module';
     GymsModule,
     GlobalExercisesModule,
     PoseAnalysisModule,
+    CloudinaryModule,
+    PhotosModule,
   ],
 })
 export class AppModule {}

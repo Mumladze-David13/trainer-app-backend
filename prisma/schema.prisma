@@ -62,6 +62,7 @@ model User {
   weightLogs        WeightLog[]
   clientSessions    ClientSession[]
   clientActivities  ClientActivity[]
+  progressPhotos    ProgressPhoto[]
 }
 
 model TrainerSettings {
@@ -397,4 +398,16 @@ model PoseDatasetCase {
   label     String
   comment   String?
   frames    Json
+}
+
+model ProgressPhoto {
+  id        String   @id @default(uuid())
+  clientId  String
+  publicId  String
+  secureUrl String
+  category  String
+  takenAt   DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  client User @relation(fields: [clientId], references: [id], onDelete: Cascade)
 }
