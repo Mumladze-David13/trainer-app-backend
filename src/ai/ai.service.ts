@@ -9,6 +9,13 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AiGateway } from './ai.gateway';
 import { AnonymizerService } from './anonymizer.service';
 import { GenerateProgramDto, SaveGeneratedProgramDto } from './dto/generate-program.dto';
+import {
+  ParseMealDto,
+  LogMealDto,
+  GenerateMealPlanDto,
+  SaveMealPlanDto,
+} from './dto/meal-ai.dto';
+import { NutritionService } from '../nutrition/nutrition.service';
 
 const PLAN_TOKEN_LIMITS: Record<SubscriptionPlan, number> = {
   FREE: 50_000,
@@ -27,6 +34,7 @@ export class AiService {
     private readonly prisma: PrismaService,
     private readonly gateway: AiGateway,
     private readonly anonymizer: AnonymizerService,
+    private readonly nutritionService: NutritionService,
   ) {}
 
   private async getOrCreateSettings(trainerId: string) {
@@ -256,5 +264,373 @@ ${exerciseList}
       requestsThisMonth: monthlyAgg._count.id,
       recentHistory: history,
     };
+  }
+
+  private validateParsedMealItems(parsed: any): void {
+    if (!Array.isArray(parsed.items)) {
+      throw new BadRequestException('AI response missing "items" array');
+    }
+
+    for (const item of parsed.items) {
+      if (!item.name || typeof item.name !== 'string') {
+        throw new BadRequestException('AI response item missing valid "name"');
+      }
+      if (typeof item.amountGrams !== 'number' || item.amountGrams <= 0) {
+        throw new BadRequestException('AI response item missing valid "amountGrams"');
+      }
+      if (typeof item.caloriesPer100g !== 'number' || item.caloriesPer100g < 0) {
+        throw new BadRequestException('AI response item missing valid "caloriesPer100g"');
+      }
+      if (typeof item.proteinPer100g !== 'number' || item.proteinPer100g < 0) {
+        throw new BadRequestException('AI response item missing valid "proteinPer100g"');
+      }
+      if (typeof item.carbsPer100g !== 'number' || item.carbsPer100g < 0) {
+        throw new BadRequestException('AI response item missing valid "carbsPer100g"');
+      }
+      if (typeof item.fatPer100g !== 'number' || item.fatPer100g < 0) {
+        throw new BadRequestException('AI response item missing valid "fatPer100g"');
+      }
+    }
+  }
+
+  private validateGeneratedMealPlan(parsed: any): void {
+    if (!Array.isArray(parsed.meals)) {
+      throw new BadRequestException('AI response missing "meals" array');
+    }
+
+    for (const meal of parsed.meals) {
+      if (!meal.type || typeof meal.type !== 'string') {
+        throw new BadRequestException('AI response meal missing valid "type"');
+      }
+      if (!['breakfast', 'lunch', 'dinner', 'snack'].includes(meal.type)) {
+        throw new BadRequestException(`AI response meal has invalid type: ${meal.type}`);
+      }
+      if (!Array.isArray(meal.items)) {
+        throw new BadRequestException('AI response meal missing "items" array');
+      }
+      for (const item of meal.items) {
+        if (!item.name || typeof item.name !== 'string') {
+          throw new BadRequestException('AI response meal item missing valid "name"');
+        }
+        if (typeof item.amountGrams !== 'number' || item.amountGrams <= 0) {
+          throw new BadRequestException('AI response meal item missing valid "amountGrams"');
+        }
+        if (typeof item.caloriesPer100g !== 'number' || item.caloriesPer100g < 0) {
+          throw new BadRequestException('AI response meal item missing valid "caloriesPer100g"');
+        }
+        if (typeof item.proteinPer100g !== 'number' || item.proteinPer100g < 0) {
+          throw new BadRequestException('AI response meal item missing valid "proteinPer100g"');
+        }
+        if (typeof item.carbsPer100g !== 'number' || item.carbsPer100g < 0) {
+          throw new BadRequestException('AI response meal item missing valid "carbsPer100g"');
+        }
+        if (typeof item.fatPer100g !== 'number' || item.fatPer100g < 0) {
+          throw new BadRequestException('AI response meal item missing valid "fatPer100g"');
+        }
+      }
+    }
+  }
+
+  async parseMeal(dto: ParseMealDto, trainerId: string) {
+    const settings = await this.getOrCreateSettings(trainerId);
+    const limit = PLAN_TOKEN_LIMITS[settings.plan];
+    const used = await this.getMonthlyTokensUsed(trainerId);
+
+    if (used >= limit) {
+      throw new ForbiddenException(
+        `Исчерпан лимит токенов для тарифа ${settings.plan} (${limit.toLocaleString()} токенов/месяц). Перейдите на более высокий тариф.`,
+      );
+    }
+
+    const systemPrompt = `Ты диетолог, разбирающийся в российской кухне.
+Оцени пищевую ценность блюд из текста пользователя.
+
+Отвечай строго в JSON формате без лишнего текста, markdown или пояснений.
+Формат ответа:
+{
+  "items": [
+    {
+      "name": "Название блюда",
+      "amountGrams": граммы_порции_число,
+      "caloriesPer100g": калории_на_100г_число,
+      "proteinPer100g": белки_на_100г_число,
+      "carbsPer100g": углеводы_на_100г_число,
+      "fatPer100g": жиры_на_100г_число
+    }
+  ]
+}
+
+Правила:
+- Если в тексте несколько блюд — создай несколько элементов в items.
+- amountGrams — вес порции: если указан явно — используй его, если нет (например "тарелка супа", "кусок торта") — оцени по типичным российским порциям.
+- caloriesPer100g/proteinPer100g/carbsPer100g/fatPer100g — пищевая ценность на 100г этого конкретного блюда.
+- Ориентируйся на российские блюда и способы приготовления (борщ, гречка, творог, куриная грудка на пару, оливье и т.п.).
+- Все числа должны быть положительными.`;
+
+    const userMessage = dto.mealType
+      ? `Приём пищи: ${dto.mealType}\nТекст: ${dto.text}`
+      : `Текст: ${dto.text}`;
+
+    const { text, usage } = await this.gateway.complete(systemPrompt, userMessage);
+
+    const totalTokens = usage.inputTokens + usage.outputTokens;
+    const costUsd =
+      usage.inputTokens * COST_PER_INPUT_TOKEN +
+      usage.outputTokens * COST_PER_OUTPUT_TOKEN;
+
+    await this.prisma.aiUsageLog.create({
+      data: {
+        trainerId,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        totalTokens,
+        costUsd,
+        operation: 'parse_meal',
+      },
+    });
+
+    let parsed: any;
+    try {
+      const clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      parsed = JSON.parse(clean);
+    } catch {
+      throw new BadRequestException(
+        'AI вернул некорректный формат. Попробуйте ещё раз.',
+      );
+    }
+
+    this.validateParsedMealItems(parsed);
+
+    return {
+      items: parsed.items,
+      usage: {
+        totalTokens,
+        costUsd: parseFloat(costUsd.toFixed(6)),
+      },
+    };
+  }
+
+  async logMeal(dto: LogMealDto, trainerId: string) {
+    const trainerClient = await this.prisma.trainerClient.findFirst({
+      where: { clientId: dto.clientId, trainerId },
+    });
+    if (!trainerClient) {
+      throw new ForbiddenException('Client not assigned to this trainer');
+    }
+
+    const parsedDate = new Date(dto.date);
+
+    await this.prisma.$transaction(async (tx) => {
+      const mealPlan = await this.nutritionService.findOrCreateMealPlan(
+        dto.clientId,
+        parsedDate,
+        tx,
+      );
+
+      const meal = await this.nutritionService.findOrCreateMeal(
+        mealPlan.id,
+        dto.mealType,
+        dto.time,
+        tx,
+      );
+
+      for (const item of dto.items) {
+        const foodItem = await this.nutritionService.findOrCreateFoodItem(
+          {
+            name: item.name,
+            caloriesPer100g: item.caloriesPer100g,
+            proteinPer100g: item.proteinPer100g,
+            carbsPer100g: item.carbsPer100g,
+            fatPer100g: item.fatPer100g,
+          },
+          tx,
+        );
+
+        await tx.mealItem.create({
+          data: {
+            mealId: meal.id,
+            foodItemId: foodItem.id,
+            amountGrams: item.amountGrams,
+          },
+        });
+      }
+    });
+
+    return { ok: true };
+  }
+
+  async generateMealPlan(dto: GenerateMealPlanDto, trainerId: string) {
+    const settings = await this.getOrCreateSettings(trainerId);
+    const limit = PLAN_TOKEN_LIMITS[settings.plan];
+    const used = await this.getMonthlyTokensUsed(trainerId);
+
+    if (used >= limit) {
+      throw new ForbiddenException(
+        `Исчерпан лимит токенов для тарифа ${settings.plan} (${limit.toLocaleString()} токенов/месяц). Перейдите на более высокий тариф.`,
+      );
+    }
+
+    const trainerClient = await this.prisma.trainerClient.findFirst({
+      where: { clientId: dto.clientId, trainerId },
+    });
+    if (!trainerClient) {
+      throw new NotFoundException('Client not found');
+    }
+
+    const calculations = await this.nutritionService.getCalculations(dto.clientId);
+
+    const systemPrompt = `Ты опытный диетолог, составляющий меню на день под целевые КБЖУ клиента.
+Ты должен использовать реалистичные российские блюда (гречка, курица, творог, борщ, овсянка и т.п.).
+
+Отвечай строго в JSON формате без лишнего текста, markdown или пояснений.
+Формат ответа:
+{
+  "meals": [
+    {
+      "type": "breakfast",
+      "time": "08:00",
+      "items": [
+        {
+          "name": "Название блюда",
+          "amountGrams": граммы_число,
+          "caloriesPer100g": калории_на_100г_число,
+          "proteinPer100g": белки_на_100г_число,
+          "carbsPer100g": углеводы_на_100г_число,
+          "fatPer100g": жиры_на_100г_число
+        }
+      ]
+    }
+  ]
+}
+
+Правила:
+- Создай meals для breakfast, lunch, dinner, и при необходимости snack.
+- Сумма калорий по всем items должна быть в пределах ±5-10% от целевого значения.
+- Сумма белков/углеводов/жиров должна быть близка к целевым макросам.
+- Используй только реалистичные российские блюда.
+- Учитывай предпочтения/ограничения клиента.
+- Все числа должны быть положительными.`;
+
+    const userMessage = `Составь меню на день для клиента.
+
+Целевые значения:
+- Калории: ${calculations.targetCalories} ккал
+- Белки: ${calculations.macros.protein}г
+- Жиры: ${calculations.macros.fat}г
+- Углеводы: ${calculations.macros.carbs}г
+
+${dto.preferences ? `Предпочтения: ${dto.preferences}` : 'Предпочтений нет.'}
+
+Создай сбалансированное меню из российских блюд.`;
+
+    const { text, usage } = await this.gateway.complete(systemPrompt, userMessage);
+
+    const totalTokens = usage.inputTokens + usage.outputTokens;
+    const costUsd =
+      usage.inputTokens * COST_PER_INPUT_TOKEN +
+      usage.outputTokens * COST_PER_OUTPUT_TOKEN;
+
+    await this.prisma.aiUsageLog.create({
+      data: {
+        trainerId,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        totalTokens,
+        costUsd,
+        operation: 'generate_meal_plan',
+      },
+    });
+
+    let parsed: any;
+    try {
+      const clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      parsed = JSON.parse(clean);
+    } catch {
+      throw new BadRequestException(
+        'AI вернул некорректный формат. Попробуйте ещё раз.',
+      );
+    }
+
+    this.validateGeneratedMealPlan(parsed);
+
+    let totalCalories = 0;
+    let totalProtein = 0;
+    let totalCarbs = 0;
+    let totalFat = 0;
+
+    for (const meal of parsed.meals) {
+      for (const item of meal.items) {
+        const ratio = item.amountGrams / 100;
+        totalCalories += item.caloriesPer100g * ratio;
+        totalProtein += item.proteinPer100g * ratio;
+        totalCarbs += item.carbsPer100g * ratio;
+        totalFat += item.fatPer100g * ratio;
+      }
+    }
+
+    return {
+      meals: parsed.meals,
+      totals: {
+        calories: Math.round(totalCalories),
+        protein: Math.round(totalProtein),
+        carbs: Math.round(totalCarbs),
+        fat: Math.round(totalFat),
+      },
+      usage: {
+        totalTokens,
+        costUsd: parseFloat(costUsd.toFixed(6)),
+      },
+    };
+  }
+
+  async saveMealPlan(dto: SaveMealPlanDto, trainerId: string) {
+    const trainerClient = await this.prisma.trainerClient.findFirst({
+      where: { clientId: dto.clientId, trainerId },
+    });
+    if (!trainerClient) {
+      throw new ForbiddenException('Client not assigned to this trainer');
+    }
+
+    const parsedDate = new Date(dto.date);
+
+    await this.prisma.$transaction(async (tx) => {
+      const mealPlan = await this.nutritionService.findOrCreateMealPlan(
+        dto.clientId,
+        parsedDate,
+        tx,
+      );
+
+      for (const mealDto of dto.meals) {
+        const meal = await this.nutritionService.findOrCreateMeal(
+          mealPlan.id,
+          mealDto.type,
+          mealDto.time,
+          tx,
+        );
+
+        for (const item of mealDto.items) {
+          const foodItem = await this.nutritionService.findOrCreateFoodItem(
+            {
+              name: item.name,
+              caloriesPer100g: item.caloriesPer100g,
+              proteinPer100g: item.proteinPer100g,
+              carbsPer100g: item.carbsPer100g,
+              fatPer100g: item.fatPer100g,
+            },
+            tx,
+          );
+
+          await tx.mealItem.create({
+            data: {
+              mealId: meal.id,
+              foodItemId: foodItem.id,
+              amountGrams: item.amountGrams,
+            },
+          });
+        }
+      }
+    });
+
+    return { ok: true };
   }
 }

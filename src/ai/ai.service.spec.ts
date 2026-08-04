@@ -3,6 +3,7 @@ import { AiService } from './ai.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiGateway } from './ai.gateway';
 import { AnonymizerService } from './anonymizer.service';
+import { NutritionService } from '../nutrition/nutrition.service';
 import {
   BadRequestException,
   ForbiddenException,
@@ -20,9 +21,11 @@ describe('AiService', () => {
       findMany: jest.fn(),
     },
     exercise: { findMany: jest.fn() },
+    trainerExercise: { findMany: jest.fn() },
     trainerClient: { findFirst: jest.fn() },
     season: { findFirst: jest.fn() },
     workout: { create: jest.fn() },
+    $transaction: jest.fn(),
   };
 
   const mockAiGateway = { complete: jest.fn() };
@@ -32,7 +35,22 @@ describe('AiService', () => {
     anonymizeWorkoutHistory: jest.fn(),
   };
 
+  const mockNutritionService = {
+    findOrCreateMealPlan: jest.fn(),
+    findOrCreateMeal: jest.fn(),
+    findOrCreateFoodItem: jest.fn(),
+    getCalculations: jest.fn(),
+  };
+
+  const mockPrismaTransaction = {
+    mealPlan: { create: jest.fn(), findUnique: jest.fn() },
+    meal: { create: jest.fn(), findMany: jest.fn() },
+    foodItem: { create: jest.fn(), findFirst: jest.fn() },
+    mealItem: { create: jest.fn() },
+  };
+
   const TRAINER_ID = 'trainer-1';
+  const CLIENT_ID = 'client-1';
 
   const makeSettings = (plan = 'FREE') => ({
     id: 'settings-1',
@@ -85,6 +103,7 @@ describe('AiService', () => {
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: AiGateway, useValue: mockAiGateway },
         { provide: AnonymizerService, useValue: mockAnonymizerService },
+        { provide: NutritionService, useValue: mockNutritionService },
       ],
     }).compile();
 
@@ -96,6 +115,7 @@ describe('AiService', () => {
     mockPrismaService.aiUsageLog.create.mockResolvedValue({});
     mockPrismaService.aiUsageLog.findMany.mockResolvedValue([]);
     mockPrismaService.exercise.findMany.mockResolvedValue([{ id: 'ex-1', name: 'Приседания' }]);
+    mockPrismaService.trainerExercise.findMany.mockResolvedValue([{ id: 'ex-1', name: 'Приседания' }]);
     mockPrismaService.trainerClient.findFirst.mockResolvedValue(trainerClient);
     mockAnonymizerService.anonymizeClient.mockReturnValue({ clientHash: 'CLIENT_abc12345' });
     mockAnonymizerService.anonymizeWorkoutHistory.mockReturnValue([]);
@@ -453,6 +473,587 @@ describe('AiService', () => {
       expect(result.tokensUsed).toBe(0);
       expect(result.costThisMonth).toBe(0);
       expect(result.requestsThisMonth).toBe(0);
+    });
+  });
+
+  // ─── parseMeal ────────────────────────────────────────────────────────────
+
+  describe('parseMeal', () => {
+    const parseMealDto = {
+      text: 'гречка с курицей 250г',
+      mealType: 'lunch',
+    };
+
+    const validParseMealJson = JSON.stringify({
+      items: [
+        {
+          name: 'Гречка с курицей',
+          amountGrams: 250,
+          caloriesPer100g: 110,
+          proteinPer100g: 12,
+          carbsPer100g: 18,
+          fatPer100g: 2,
+        },
+      ],
+    });
+
+    it('calls AiGateway.complete with correct prompts', async () => {
+      mockAiGateway.complete.mockResolvedValue(makeAiResponse(validParseMealJson));
+
+      await service.parseMeal(parseMealDto, TRAINER_ID);
+
+      expect(mockAiGateway.complete).toHaveBeenCalledTimes(1);
+      const [systemPrompt, userMessage] = mockAiGateway.complete.mock.calls[0];
+      expect(systemPrompt).toContain('диетолог');
+      expect(userMessage).toContain('гречка с курицей 250г');
+    });
+
+    it('creates usage log with operation "parse_meal"', async () => {
+      mockAiGateway.complete.mockResolvedValue(makeAiResponse(validParseMealJson, 500, 300));
+
+      await service.parseMeal(parseMealDto, TRAINER_ID);
+
+      expect(mockPrismaService.aiUsageLog.create).toHaveBeenCalledTimes(1);
+      const logData = mockPrismaService.aiUsageLog.create.mock.calls[0][0].data;
+      expect(logData.operation).toBe('parse_meal');
+      expect(logData.trainerId).toBe(TRAINER_ID);
+      expect(logData.inputTokens).toBe(500);
+      expect(logData.outputTokens).toBe(300);
+      expect(logData.totalTokens).toBe(800);
+    });
+
+    it('throws ForbiddenException when FREE limit is exhausted', async () => {
+      mockPrismaService.trainerSettings.upsert.mockResolvedValue(makeSettings('FREE'));
+      mockPrismaService.aiUsageLog.aggregate.mockResolvedValue({ _sum: { totalTokens: 50_000 } });
+
+      await expect(service.parseMeal(parseMealDto, TRAINER_ID)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('does NOT create usage log when limit exceeded', async () => {
+      mockPrismaService.aiUsageLog.aggregate.mockResolvedValue({ _sum: { totalTokens: 50_000 } });
+
+      await expect(service.parseMeal(parseMealDto, TRAINER_ID)).rejects.toThrow(ForbiddenException);
+
+      expect(mockPrismaService.aiUsageLog.create).not.toHaveBeenCalled();
+    });
+
+    it('throws BadRequestException when AI returns invalid JSON', async () => {
+      mockAiGateway.complete.mockResolvedValue(makeAiResponse('not valid json'));
+
+      await expect(service.parseMeal(parseMealDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws BadRequestException when AI response missing "items" array', async () => {
+      mockAiGateway.complete.mockResolvedValue(makeAiResponse(JSON.stringify({ wrong: 'structure' })));
+
+      await expect(service.parseMeal(parseMealDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws BadRequestException when items is not an array', async () => {
+      mockAiGateway.complete.mockResolvedValue(makeAiResponse(JSON.stringify({ items: 'not-array' })));
+
+      await expect(service.parseMeal(parseMealDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws BadRequestException when item missing valid "name"', async () => {
+      const invalidJson = JSON.stringify({
+        items: [{ amountGrams: 100, caloriesPer100g: 100, proteinPer100g: 10, carbsPer100g: 10, fatPer100g: 1 }],
+      });
+      mockAiGateway.complete.mockResolvedValue(makeAiResponse(invalidJson));
+
+      await expect(service.parseMeal(parseMealDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws BadRequestException when amountGrams is string instead of number', async () => {
+      const invalidJson = JSON.stringify({
+        items: [
+          {
+            name: 'Гречка',
+            amountGrams: '100',
+            caloriesPer100g: 100,
+            proteinPer100g: 10,
+            carbsPer100g: 10,
+            fatPer100g: 1,
+          },
+        ],
+      });
+      mockAiGateway.complete.mockResolvedValue(makeAiResponse(invalidJson));
+
+      await expect(service.parseMeal(parseMealDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws BadRequestException when amountGrams is negative', async () => {
+      const invalidJson = JSON.stringify({
+        items: [
+          {
+            name: 'Гречка',
+            amountGrams: -50,
+            caloriesPer100g: 100,
+            proteinPer100g: 10,
+            carbsPer100g: 10,
+            fatPer100g: 1,
+          },
+        ],
+      });
+      mockAiGateway.complete.mockResolvedValue(makeAiResponse(invalidJson));
+
+      await expect(service.parseMeal(parseMealDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws BadRequestException when caloriesPer100g is missing', async () => {
+      const invalidJson = JSON.stringify({
+        items: [{ name: 'Гречка', amountGrams: 100, proteinPer100g: 10, carbsPer100g: 10, fatPer100g: 1 }],
+      });
+      mockAiGateway.complete.mockResolvedValue(makeAiResponse(invalidJson));
+
+      await expect(service.parseMeal(parseMealDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
+    });
+
+    it('returns items and usage when valid response', async () => {
+      mockAiGateway.complete.mockResolvedValue(makeAiResponse(validParseMealJson, 500, 300));
+
+      const result = await service.parseMeal(parseMealDto, TRAINER_ID);
+
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].name).toBe('Гречка с курицей');
+      expect(result.items[0].amountGrams).toBe(250);
+      expect(result.usage.totalTokens).toBe(800);
+      expect(result.usage.costUsd).toBeCloseTo(0.0016, 6);
+    });
+
+    it('strips markdown code blocks from AI response', async () => {
+      const wrapped = `\`\`\`json\n${validParseMealJson}\n\`\`\``;
+      mockAiGateway.complete.mockResolvedValue(makeAiResponse(wrapped));
+
+      const result = await service.parseMeal(parseMealDto, TRAINER_ID);
+
+      expect(result.items).toHaveLength(1);
+    });
+
+    it('does NOT write to database (no prisma writes except usage log)', async () => {
+      mockAiGateway.complete.mockResolvedValue(makeAiResponse(validParseMealJson));
+
+      await service.parseMeal(parseMealDto, TRAINER_ID);
+
+      expect(mockNutritionService.findOrCreateMealPlan).not.toHaveBeenCalled();
+      expect(mockNutritionService.findOrCreateMeal).not.toHaveBeenCalled();
+      expect(mockNutritionService.findOrCreateFoodItem).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── logMeal ──────────────────────────────────────────────────────────────
+
+  describe('logMeal', () => {
+    const logMealDto = {
+      clientId: CLIENT_ID,
+      date: '2026-08-04',
+      mealType: 'lunch',
+      time: '13:00',
+      items: [
+        {
+          name: 'Гречка',
+          amountGrams: 150,
+          caloriesPer100g: 110,
+          proteinPer100g: 4.2,
+          carbsPer100g: 21.3,
+          fatPer100g: 1.1,
+        },
+      ],
+    };
+
+    const mockMealPlan = { id: 'meal-plan-1', clientId: CLIENT_ID, date: new Date('2026-08-04') };
+    const mockMeal = { id: 'meal-1', mealPlanId: 'meal-plan-1', type: 'lunch' };
+    const mockFoodItem = { id: 'food-1', name: 'Гречка', caloriesPer100g: 110 };
+
+    beforeEach(() => {
+      mockPrismaService.trainerClient.findFirst.mockResolvedValue({ id: 'tc-1', trainerId: TRAINER_ID, clientId: CLIENT_ID });
+      mockPrismaService.$transaction.mockImplementation(async (cb) => cb(mockPrismaTransaction));
+      mockNutritionService.findOrCreateMealPlan.mockResolvedValue(mockMealPlan);
+      mockNutritionService.findOrCreateMeal.mockResolvedValue(mockMeal);
+      mockNutritionService.findOrCreateFoodItem.mockResolvedValue(mockFoodItem);
+    });
+
+    it('throws ForbiddenException when client not assigned to trainer', async () => {
+      mockPrismaService.trainerClient.findFirst.mockResolvedValue(null);
+
+      await expect(service.logMeal(logMealDto, TRAINER_ID)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('does NOT call AiGateway.complete', async () => {
+      await service.logMeal(logMealDto, TRAINER_ID);
+
+      expect(mockAiGateway.complete).not.toHaveBeenCalled();
+    });
+
+    it('does NOT create usage log', async () => {
+      await service.logMeal(logMealDto, TRAINER_ID);
+
+      expect(mockPrismaService.aiUsageLog.create).not.toHaveBeenCalled();
+    });
+
+    it('calls prisma.$transaction', async () => {
+      await service.logMeal(logMealDto, TRAINER_ID);
+
+      expect(mockPrismaService.$transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('calls NutritionService.findOrCreateMealPlan with transaction client', async () => {
+      await service.logMeal(logMealDto, TRAINER_ID);
+
+      expect(mockNutritionService.findOrCreateMealPlan).toHaveBeenCalledTimes(1);
+      expect(mockNutritionService.findOrCreateMealPlan).toHaveBeenCalledWith(
+        CLIENT_ID,
+        new Date('2026-08-04'),
+        mockPrismaTransaction,
+      );
+    });
+
+    it('calls NutritionService.findOrCreateMeal with transaction client', async () => {
+      await service.logMeal(logMealDto, TRAINER_ID);
+
+      expect(mockNutritionService.findOrCreateMeal).toHaveBeenCalledTimes(1);
+      expect(mockNutritionService.findOrCreateMeal).toHaveBeenCalledWith(
+        'meal-plan-1',
+        'lunch',
+        '13:00',
+        mockPrismaTransaction,
+      );
+    });
+
+    it('calls NutritionService.findOrCreateFoodItem with transaction client', async () => {
+      await service.logMeal(logMealDto, TRAINER_ID);
+
+      expect(mockNutritionService.findOrCreateFoodItem).toHaveBeenCalledTimes(1);
+      expect(mockNutritionService.findOrCreateFoodItem).toHaveBeenCalledWith(
+        {
+          name: 'Гречка',
+          caloriesPer100g: 110,
+          proteinPer100g: 4.2,
+          carbsPer100g: 21.3,
+          fatPer100g: 1.1,
+        },
+        mockPrismaTransaction,
+      );
+    });
+
+    it('creates mealItem with correct data', async () => {
+      await service.logMeal(logMealDto, TRAINER_ID);
+
+      expect(mockPrismaTransaction.mealItem.create).toHaveBeenCalledTimes(1);
+      expect(mockPrismaTransaction.mealItem.create).toHaveBeenCalledWith({
+        data: {
+          mealId: 'meal-1',
+          foodItemId: 'food-1',
+          amountGrams: 150,
+        },
+      });
+    });
+
+    it('returns ok:true when successful', async () => {
+      const result = await service.logMeal(logMealDto, TRAINER_ID);
+
+      expect(result).toEqual({ ok: true });
+    });
+  });
+
+  // ─── generateMealPlan ─────────────────────────────────────────────────────
+
+  describe('generateMealPlan', () => {
+    const generateMealPlanDto = {
+      clientId: CLIENT_ID,
+      preferences: 'не ем рыбу',
+    };
+
+    const validGenerateMealPlanJson = JSON.stringify({
+      meals: [
+        {
+          type: 'breakfast',
+          time: '08:00',
+          items: [
+            {
+              name: 'Овсянка',
+              amountGrams: 100,
+              caloriesPer100g: 88,
+              proteinPer100g: 3,
+              carbsPer100g: 15,
+              fatPer100g: 1.5,
+            },
+          ],
+        },
+      ],
+    });
+
+    const mockCalculations = {
+      bmr: 1600,
+      tdee: 2200,
+      targetCalories: 2500,
+      macros: { protein: 150, fat: 70, carbs: 250 },
+    };
+
+    beforeEach(() => {
+      mockPrismaService.trainerClient.findFirst.mockResolvedValue({ id: 'tc-1', trainerId: TRAINER_ID, clientId: CLIENT_ID });
+      mockNutritionService.getCalculations.mockResolvedValue(mockCalculations);
+      mockAiGateway.complete.mockResolvedValue(makeAiResponse(validGenerateMealPlanJson));
+    });
+
+    it('throws NotFoundException when client not found', async () => {
+      mockPrismaService.trainerClient.findFirst.mockResolvedValue(null);
+
+      await expect(service.generateMealPlan(generateMealPlanDto, TRAINER_ID)).rejects.toThrow(NotFoundException);
+    });
+
+    it('throws ForbiddenException when FREE limit is exhausted', async () => {
+      mockPrismaService.aiUsageLog.aggregate.mockResolvedValue({ _sum: { totalTokens: 50_000 } });
+
+      await expect(service.generateMealPlan(generateMealPlanDto, TRAINER_ID)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('does NOT create usage log when limit exceeded', async () => {
+      mockPrismaService.aiUsageLog.aggregate.mockResolvedValue({ _sum: { totalTokens: 50_000 } });
+
+      await expect(service.generateMealPlan(generateMealPlanDto, TRAINER_ID)).rejects.toThrow(ForbiddenException);
+
+      expect(mockPrismaService.aiUsageLog.create).not.toHaveBeenCalled();
+    });
+
+    it('calls NutritionService.getCalculations', async () => {
+      await service.generateMealPlan(generateMealPlanDto, TRAINER_ID);
+
+      expect(mockNutritionService.getCalculations).toHaveBeenCalledWith(CLIENT_ID);
+    });
+
+    it('calls AiGateway.complete with correct prompts', async () => {
+      await service.generateMealPlan(generateMealPlanDto, TRAINER_ID);
+
+      expect(mockAiGateway.complete).toHaveBeenCalledTimes(1);
+      const [systemPrompt, userMessage] = mockAiGateway.complete.mock.calls[0];
+      expect(systemPrompt).toContain('диетолог');
+      expect(userMessage).toContain('2500');
+      expect(userMessage).toContain('не ем рыбу');
+    });
+
+    it('creates usage log with operation "generate_meal_plan"', async () => {
+      mockAiGateway.complete.mockResolvedValue(makeAiResponse(validGenerateMealPlanJson, 1000, 600));
+
+      await service.generateMealPlan(generateMealPlanDto, TRAINER_ID);
+
+      expect(mockPrismaService.aiUsageLog.create).toHaveBeenCalledTimes(1);
+      const logData = mockPrismaService.aiUsageLog.create.mock.calls[0][0].data;
+      expect(logData.operation).toBe('generate_meal_plan');
+      expect(logData.trainerId).toBe(TRAINER_ID);
+      expect(logData.inputTokens).toBe(1000);
+      expect(logData.outputTokens).toBe(600);
+      expect(logData.totalTokens).toBe(1600);
+    });
+
+    it('throws BadRequestException when AI returns invalid JSON', async () => {
+      mockAiGateway.complete.mockResolvedValue(makeAiResponse('not valid json'));
+
+      await expect(service.generateMealPlan(generateMealPlanDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws BadRequestException when AI response missing "meals" array', async () => {
+      mockAiGateway.complete.mockResolvedValue(makeAiResponse(JSON.stringify({ wrong: 'structure' })));
+
+      await expect(service.generateMealPlan(generateMealPlanDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws BadRequestException when meals is not an array', async () => {
+      mockAiGateway.complete.mockResolvedValue(makeAiResponse(JSON.stringify({ meals: 'not-array' })));
+
+      await expect(service.generateMealPlan(generateMealPlanDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws BadRequestException when meal missing valid "type"', async () => {
+      const invalidJson = JSON.stringify({
+        meals: [{ time: '08:00', items: [] }],
+      });
+      mockAiGateway.complete.mockResolvedValue(makeAiResponse(invalidJson));
+
+      await expect(service.generateMealPlan(generateMealPlanDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws BadRequestException when meal has invalid type', async () => {
+      const invalidJson = JSON.stringify({
+        meals: [{ type: 'invalid_type', time: '08:00', items: [] }],
+      });
+      mockAiGateway.complete.mockResolvedValue(makeAiResponse(invalidJson));
+
+      await expect(service.generateMealPlan(generateMealPlanDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws BadRequestException when meal missing "items" array', async () => {
+      const invalidJson = JSON.stringify({
+        meals: [{ type: 'breakfast', time: '08:00' }],
+      });
+      mockAiGateway.complete.mockResolvedValue(makeAiResponse(invalidJson));
+
+      await expect(service.generateMealPlan(generateMealPlanDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws BadRequestException when meal item missing valid "name"', async () => {
+      const invalidJson = JSON.stringify({
+        meals: [
+          {
+            type: 'breakfast',
+            items: [{ amountGrams: 100, caloriesPer100g: 88, proteinPer100g: 3, carbsPer100g: 15, fatPer100g: 1.5 }],
+          },
+        ],
+      });
+      mockAiGateway.complete.mockResolvedValue(makeAiResponse(invalidJson));
+
+      await expect(service.generateMealPlan(generateMealPlanDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
+    });
+
+    it('returns meals, totals and usage when valid response', async () => {
+      mockAiGateway.complete.mockResolvedValue(makeAiResponse(validGenerateMealPlanJson, 1000, 600));
+
+      const result = await service.generateMealPlan(generateMealPlanDto, TRAINER_ID);
+
+      expect(result.meals).toHaveLength(1);
+      expect(result.meals[0].type).toBe('breakfast');
+      expect(result.totals.calories).toBe(88);
+      expect(result.totals.protein).toBe(3);
+      expect(result.totals.carbs).toBe(15);
+      expect(result.totals.fat).toBe(2);
+      expect(result.usage.totalTokens).toBe(1600);
+      expect(result.usage.costUsd).toBeCloseTo(0.003200, 6);
+    });
+
+    it('strips markdown code blocks from AI response', async () => {
+      const wrapped = `\`\`\`json\n${validGenerateMealPlanJson}\n\`\`\``;
+      mockAiGateway.complete.mockResolvedValue(makeAiResponse(wrapped));
+
+      const result = await service.generateMealPlan(generateMealPlanDto, TRAINER_ID);
+
+      expect(result.meals).toHaveLength(1);
+    });
+
+    it('does NOT write to database (no prisma writes except usage log)', async () => {
+      await service.generateMealPlan(generateMealPlanDto, TRAINER_ID);
+
+      expect(mockNutritionService.findOrCreateMealPlan).not.toHaveBeenCalled();
+      expect(mockNutritionService.findOrCreateMeal).not.toHaveBeenCalled();
+      expect(mockNutritionService.findOrCreateFoodItem).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── saveMealPlan ─────────────────────────────────────────────────────────
+
+  describe('saveMealPlan', () => {
+    const saveMealPlanDto = {
+      clientId: CLIENT_ID,
+      date: '2026-08-04',
+      meals: [
+        {
+          type: 'breakfast',
+          time: '08:00',
+          items: [
+            {
+              name: 'Овсянка',
+              amountGrams: 100,
+              caloriesPer100g: 88,
+              proteinPer100g: 3,
+              carbsPer100g: 15,
+              fatPer100g: 1.5,
+            },
+          ],
+        },
+      ],
+    };
+
+    const mockMealPlan = { id: 'meal-plan-1', clientId: CLIENT_ID, date: new Date('2026-08-04') };
+    const mockMeal = { id: 'meal-1', mealPlanId: 'meal-plan-1', type: 'breakfast' };
+    const mockFoodItem = { id: 'food-1', name: 'Овсянка', caloriesPer100g: 88 };
+
+    beforeEach(() => {
+      mockPrismaService.trainerClient.findFirst.mockResolvedValue({ id: 'tc-1', trainerId: TRAINER_ID, clientId: CLIENT_ID });
+      mockPrismaService.$transaction.mockImplementation(async (cb) => cb(mockPrismaTransaction));
+      mockNutritionService.findOrCreateMealPlan.mockResolvedValue(mockMealPlan);
+      mockNutritionService.findOrCreateMeal.mockResolvedValue(mockMeal);
+      mockNutritionService.findOrCreateFoodItem.mockResolvedValue(mockFoodItem);
+    });
+
+    it('throws ForbiddenException when client not assigned to trainer', async () => {
+      mockPrismaService.trainerClient.findFirst.mockResolvedValue(null);
+
+      await expect(service.saveMealPlan(saveMealPlanDto, TRAINER_ID)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('does NOT call AiGateway.complete', async () => {
+      await service.saveMealPlan(saveMealPlanDto, TRAINER_ID);
+
+      expect(mockAiGateway.complete).not.toHaveBeenCalled();
+    });
+
+    it('does NOT create usage log', async () => {
+      await service.saveMealPlan(saveMealPlanDto, TRAINER_ID);
+
+      expect(mockPrismaService.aiUsageLog.create).not.toHaveBeenCalled();
+    });
+
+    it('calls prisma.$transaction', async () => {
+      await service.saveMealPlan(saveMealPlanDto, TRAINER_ID);
+
+      expect(mockPrismaService.$transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('calls NutritionService.findOrCreateMealPlan with transaction client', async () => {
+      await service.saveMealPlan(saveMealPlanDto, TRAINER_ID);
+
+      expect(mockNutritionService.findOrCreateMealPlan).toHaveBeenCalledTimes(1);
+      expect(mockNutritionService.findOrCreateMealPlan).toHaveBeenCalledWith(
+        CLIENT_ID,
+        new Date('2026-08-04'),
+        mockPrismaTransaction,
+      );
+    });
+
+    it('calls NutritionService.findOrCreateMeal with transaction client for each meal', async () => {
+      await service.saveMealPlan(saveMealPlanDto, TRAINER_ID);
+
+      expect(mockNutritionService.findOrCreateMeal).toHaveBeenCalledTimes(1);
+      expect(mockNutritionService.findOrCreateMeal).toHaveBeenCalledWith(
+        'meal-plan-1',
+        'breakfast',
+        '08:00',
+        mockPrismaTransaction,
+      );
+    });
+
+    it('calls NutritionService.findOrCreateFoodItem with transaction client for each item', async () => {
+      await service.saveMealPlan(saveMealPlanDto, TRAINER_ID);
+
+      expect(mockNutritionService.findOrCreateFoodItem).toHaveBeenCalledTimes(1);
+      expect(mockNutritionService.findOrCreateFoodItem).toHaveBeenCalledWith(
+        {
+          name: 'Овсянка',
+          caloriesPer100g: 88,
+          proteinPer100g: 3,
+          carbsPer100g: 15,
+          fatPer100g: 1.5,
+        },
+        mockPrismaTransaction,
+      );
+    });
+
+    it('creates mealItem with correct data', async () => {
+      await service.saveMealPlan(saveMealPlanDto, TRAINER_ID);
+
+      expect(mockPrismaTransaction.mealItem.create).toHaveBeenCalledTimes(1);
+      expect(mockPrismaTransaction.mealItem.create).toHaveBeenCalledWith({
+        data: {
+          mealId: 'meal-1',
+          foodItemId: 'food-1',
+          amountGrams: 100,
+        },
+      });
+    });
+
+    it('returns ok:true when successful', async () => {
+      const result = await service.saveMealPlan(saveMealPlanDto, TRAINER_ID);
+
+      expect(result).toEqual({ ok: true });
     });
   });
 });

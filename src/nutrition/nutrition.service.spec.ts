@@ -21,6 +21,7 @@ describe('NutritionService', () => {
     },
     meal: {
       findUnique: jest.fn(),
+      findMany: jest.fn(),
       create: jest.fn(),
     },
     mealItem: {
@@ -30,6 +31,7 @@ describe('NutritionService', () => {
     },
     foodItem: {
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
       findMany: jest.fn(),
       create: jest.fn(),
     },
@@ -830,6 +832,285 @@ describe('NutritionService', () => {
       expect(createCall.data.createdBy).toBe(TRAINER_ID);
       expect(createCall.data.name).toBe('Овсянка');
       expect(result.createdBy).toBe(TRAINER_ID);
+    });
+  });
+
+  // ─── findOrCreateMealPlan ────────────────────────────────────────────────
+
+  describe('findOrCreateMealPlan', () => {
+    const date = new Date('2026-08-04');
+
+    it('returns existing meal plan when it exists', async () => {
+      const existingPlan = makeMealPlan({ date });
+      mockPrismaService.nutritionProfile.findUnique.mockResolvedValue(makeProfile());
+      mockPrismaService.mealPlan.findUnique.mockResolvedValue(existingPlan);
+
+      const result = await service.findOrCreateMealPlan(CLIENT_ID, date);
+
+      expect(result.id).toBe(MEAL_PLAN_ID);
+      expect(mockPrismaService.mealPlan.create).not.toHaveBeenCalled();
+    });
+
+    it('creates new meal plan when it does not exist', async () => {
+      const profile = makeProfile({ activityLevel: 'moderate', weightKg: 80, heightCm: 180, age: 30, gender: 'male', goal: 'maintain' });
+      mockPrismaService.nutritionProfile.findUnique.mockResolvedValue(profile);
+      mockPrismaService.mealPlan.findUnique.mockResolvedValue(null);
+      const newPlan = makeMealPlan({ date });
+      mockPrismaService.mealPlan.create.mockResolvedValue(newPlan);
+
+      const result = await service.findOrCreateMealPlan(CLIENT_ID, date);
+
+      expect(mockPrismaService.mealPlan.create).toHaveBeenCalledTimes(1);
+      expect(result.id).toBe(MEAL_PLAN_ID);
+    });
+
+    it('throws NotFoundException when nutrition profile does not exist', async () => {
+      mockPrismaService.nutritionProfile.findUnique.mockResolvedValue(null);
+
+      await expect(service.findOrCreateMealPlan(CLIENT_ID, date)).rejects.toThrow(NotFoundException);
+      await expect(service.findOrCreateMealPlan(CLIENT_ID, date)).rejects.toThrow('Nutrition profile not found');
+    });
+
+    it('uses custom prismaClient when provided (transaction support)', async () => {
+      const mockTxClient = {
+        nutritionProfile: { findUnique: jest.fn() },
+        mealPlan: { findUnique: jest.fn(), create: jest.fn() },
+      };
+
+      const profile = makeProfile();
+      mockTxClient.nutritionProfile.findUnique.mockResolvedValue(profile);
+      mockTxClient.mealPlan.findUnique.mockResolvedValue(null);
+      mockTxClient.mealPlan.create.mockResolvedValue(makeMealPlan());
+
+      await service.findOrCreateMealPlan(CLIENT_ID, date, mockTxClient);
+
+      expect(mockTxClient.nutritionProfile.findUnique).toHaveBeenCalledTimes(1);
+      expect(mockTxClient.mealPlan.create).toHaveBeenCalledTimes(1);
+      expect(mockPrismaService.mealPlan.create).not.toHaveBeenCalled();
+    });
+
+    it('calculates target KBJU from profile when creating new plan', async () => {
+      const profile = makeProfile({ activityLevel: 'moderate', weightKg: 80, heightCm: 180, age: 30, gender: 'male', goal: 'gain_muscle' });
+      mockPrismaService.nutritionProfile.findUnique.mockResolvedValue(profile);
+      mockPrismaService.mealPlan.findUnique.mockResolvedValue(null);
+      mockPrismaService.mealPlan.create.mockResolvedValue(makeMealPlan());
+
+      await service.findOrCreateMealPlan(CLIENT_ID, date);
+
+      const createCall = mockPrismaService.mealPlan.create.mock.calls[0][0];
+      // BMR = 1780, TDEE = 2759, targetCalories = 3059 (gain_muscle)
+      // protein = 80*2.0 = 160, fat = 80, carbs = (3059 - 640 - 720) / 4 = 424.75 → 425
+      expect(createCall.data.targetCalories).toBe(3059);
+      expect(createCall.data.targetProtein).toBe(160);
+      expect(createCall.data.targetFat).toBe(80);
+      expect(createCall.data.targetCarbs).toBe(425);
+    });
+  });
+
+  // ─── findOrCreateMeal ────────────────────────────────────────────────────
+
+  describe('findOrCreateMeal', () => {
+    const mealType = 'breakfast';
+    const time = '08:00';
+
+    it('returns existing meal when found', async () => {
+      const existingMeal = makeMeal({ type: mealType, time });
+      mockPrismaService.meal.findMany.mockResolvedValue([existingMeal]);
+
+      const result = await service.findOrCreateMeal(MEAL_PLAN_ID, mealType, time);
+
+      expect(result.id).toBe(MEAL_ID);
+      expect(mockPrismaService.meal.create).not.toHaveBeenCalled();
+    });
+
+    it('creates new meal when not found', async () => {
+      mockPrismaService.meal.findMany.mockResolvedValue([]);
+      const newMeal = makeMeal({ type: mealType, time });
+      mockPrismaService.meal.create.mockResolvedValue(newMeal);
+
+      const result = await service.findOrCreateMeal(MEAL_PLAN_ID, mealType, time);
+
+      expect(mockPrismaService.meal.create).toHaveBeenCalledTimes(1);
+      expect(result.id).toBe(MEAL_ID);
+    });
+
+    it('returns earliest meal when multiple meals of same type exist (deterministic)', async () => {
+      const older = makeMeal({ id: 'meal-old', type: mealType, createdAt: new Date('2026-08-01') });
+      const newer = makeMeal({ id: 'meal-new', type: mealType, createdAt: new Date('2026-08-03') });
+      mockPrismaService.meal.findMany.mockResolvedValue([older]);
+
+      const result = await service.findOrCreateMeal(MEAL_PLAN_ID, mealType, time);
+
+      expect(result.id).toBe('meal-old');
+      expect(mockPrismaService.meal.create).not.toHaveBeenCalled();
+    });
+
+    it('queries with orderBy createdAt asc and take 1', async () => {
+      mockPrismaService.meal.findMany.mockResolvedValue([]);
+      mockPrismaService.meal.create.mockResolvedValue(makeMeal());
+
+      await service.findOrCreateMeal(MEAL_PLAN_ID, mealType, time);
+
+      const findManyCall = mockPrismaService.meal.findMany.mock.calls[0][0];
+      expect(findManyCall.orderBy).toEqual({ createdAt: 'asc' });
+      expect(findManyCall.take).toBe(1);
+    });
+
+    it('uses custom prismaClient when provided (transaction support)', async () => {
+      const mockTxClient = {
+        meal: { findMany: jest.fn(), create: jest.fn() },
+      };
+
+      mockTxClient.meal.findMany.mockResolvedValue([]);
+      mockTxClient.meal.create.mockResolvedValue(makeMeal());
+
+      await service.findOrCreateMeal(MEAL_PLAN_ID, mealType, time, mockTxClient);
+
+      expect(mockTxClient.meal.findMany).toHaveBeenCalledTimes(1);
+      expect(mockTxClient.meal.create).toHaveBeenCalledTimes(1);
+      expect(mockPrismaService.meal.create).not.toHaveBeenCalled();
+    });
+
+    it('passes time to create when creating new meal', async () => {
+      mockPrismaService.meal.findMany.mockResolvedValue([]);
+      mockPrismaService.meal.create.mockResolvedValue(makeMeal());
+
+      await service.findOrCreateMeal(MEAL_PLAN_ID, mealType, '13:30');
+
+      const createCall = mockPrismaService.meal.create.mock.calls[0][0];
+      expect(createCall.data.mealPlanId).toBe(MEAL_PLAN_ID);
+      expect(createCall.data.type).toBe(mealType);
+      expect(createCall.data.time).toBe('13:30');
+    });
+  });
+
+  // ─── findOrCreateFoodItem ────────────────────────────────────────────────
+
+  describe('findOrCreateFoodItem', () => {
+    const itemData = {
+      name: 'Гречка',
+      caloriesPer100g: 110,
+      proteinPer100g: 4.2,
+      carbsPer100g: 21.3,
+      fatPer100g: 1.1,
+    };
+
+    it('returns existing food item when found by exact name', async () => {
+      const existingFood = makeFoodItem({ name: 'Гречка', id: 'food-existing' });
+      mockPrismaService.foodItem.findFirst.mockResolvedValue(existingFood);
+
+      const result = await service.findOrCreateFoodItem(itemData);
+
+      expect(result.id).toBe('food-existing');
+      expect(mockPrismaService.foodItem.create).not.toHaveBeenCalled();
+    });
+
+    it('returns existing food item when found by case-insensitive match', async () => {
+      const existingFood = makeFoodItem({ name: 'ГРЕЧКА', id: 'food-existing' });
+      mockPrismaService.foodItem.findFirst.mockResolvedValue(existingFood);
+
+      const result = await service.findOrCreateFoodItem({ ...itemData, name: 'гречка' });
+
+      expect(result.id).toBe('food-existing');
+      expect(mockPrismaService.foodItem.create).not.toHaveBeenCalled();
+    });
+
+    it('searches with case-insensitive mode', async () => {
+      mockPrismaService.foodItem.findFirst.mockResolvedValue(null);
+      mockPrismaService.foodItem.create.mockResolvedValue(makeFoodItem(itemData));
+
+      await service.findOrCreateFoodItem(itemData);
+
+      const findFirstCall = mockPrismaService.foodItem.findFirst.mock.calls[0][0];
+      expect(findFirstCall.where.name.equals).toBe('Гречка');
+      expect(findFirstCall.where.name.mode).toBe('insensitive');
+    });
+
+    it('creates new food item when not found', async () => {
+      mockPrismaService.foodItem.findFirst.mockResolvedValue(null);
+      const newFood = makeFoodItem(itemData);
+      mockPrismaService.foodItem.create.mockResolvedValue(newFood);
+
+      const result = await service.findOrCreateFoodItem(itemData);
+
+      expect(mockPrismaService.foodItem.create).toHaveBeenCalledTimes(1);
+      expect(result.name).toBe('Гречка');
+    });
+
+    it('creates food item with category "ai"', async () => {
+      mockPrismaService.foodItem.findFirst.mockResolvedValue(null);
+      mockPrismaService.foodItem.create.mockResolvedValue(makeFoodItem(itemData));
+
+      await service.findOrCreateFoodItem(itemData);
+
+      const createCall = mockPrismaService.foodItem.create.mock.calls[0][0];
+      expect(createCall.data.category).toBe('ai');
+      expect(createCall.data.name).toBe('Гречка');
+      expect(createCall.data.caloriesPer100g).toBe(110);
+    });
+
+    it('uses custom prismaClient when provided (transaction support)', async () => {
+      const mockTxClient = {
+        foodItem: { findFirst: jest.fn(), create: jest.fn() },
+      };
+
+      mockTxClient.foodItem.findFirst.mockResolvedValue(null);
+      mockTxClient.foodItem.create.mockResolvedValue(makeFoodItem(itemData));
+
+      await service.findOrCreateFoodItem(itemData, mockTxClient);
+
+      expect(mockTxClient.foodItem.findFirst).toHaveBeenCalledTimes(1);
+      expect(mockTxClient.foodItem.create).toHaveBeenCalledTimes(1);
+      expect(mockPrismaService.foodItem.create).not.toHaveBeenCalled();
+    });
+
+    it('does NOT create duplicate when case-insensitive match exists (coverage for key risk)', async () => {
+      const existingFood = makeFoodItem({ name: 'Овсянка', id: 'food-existing' });
+      mockPrismaService.foodItem.findFirst.mockResolvedValue(existingFood);
+
+      const result = await service.findOrCreateFoodItem({ ...itemData, name: 'овсянка' });
+
+      expect(result.id).toBe('food-existing');
+      expect(mockPrismaService.foodItem.create).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── getCalculations ─────────────────────────────────────────────────────
+
+  describe('getCalculations', () => {
+    it('throws NotFoundException when profile does not exist', async () => {
+      mockPrismaService.nutritionProfile.findUnique.mockResolvedValue(null);
+
+      await expect(service.getCalculations(CLIENT_ID)).rejects.toThrow(NotFoundException);
+      await expect(service.getCalculations(CLIENT_ID)).rejects.toThrow('Nutrition profile not found');
+    });
+
+    it('returns calculations without profile data', async () => {
+      const profile = makeProfile({ activityLevel: 'moderate', weightKg: 80, heightCm: 180, age: 30, gender: 'male', goal: 'maintain' });
+      mockPrismaService.nutritionProfile.findUnique.mockResolvedValue(profile);
+
+      const result = await service.getCalculations(CLIENT_ID);
+
+      expect(result.bmr).toBe(1780);
+      expect(result.tdee).toBe(2759);
+      expect(result.targetCalories).toBe(2759);
+      expect(result.macros).toEqual({ protein: 144, fat: 80, carbs: 366 });
+    });
+
+    it('calculates correctly for gain_muscle goal', async () => {
+      const profile = makeProfile({ activityLevel: 'active', weightKg: 90, heightCm: 185, age: 25, gender: 'male', goal: 'gain_muscle' });
+      mockPrismaService.nutritionProfile.findUnique.mockResolvedValue(profile);
+
+      const result = await service.getCalculations(CLIENT_ID);
+
+      // BMR = 10*90 + 6.25*185 - 5*25 + 5 = 900 + 1156.25 - 125 + 5 = 1936.25 → 1936
+      // TDEE = 1936 * 1.725 = 3339.6 → 3340
+      // targetCalories = 3340 + 300 = 3640
+      // protein = 90*2.0 = 180, fat = 90, carbs = (3640 - 720 - 810) / 4 = 2110 / 4 = 527.5 → 528
+      expect(result.bmr).toBe(1936);
+      expect(result.tdee).toBe(3340);
+      expect(result.targetCalories).toBe(3640);
+      expect(result.macros).toEqual({ protein: 180, fat: 90, carbs: 528 });
     });
   });
 });

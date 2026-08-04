@@ -54,6 +54,115 @@ export class NutritionService {
     if (!trainerClient) throw new ForbiddenException('Access denied');
   }
 
+  /**
+   * Найти/создать meal-plan на дату с актуальными целевыми значениями.
+   * Переиспользуемый метод для AI-функционала.
+   */
+  async findOrCreateMealPlan(clientId: string, date: Date, prismaClient?: any) {
+    const client = prismaClient ?? this.prisma;
+    const profile = await client.nutritionProfile.findUnique({ where: { clientId } });
+    if (!profile) throw new NotFoundException('Nutrition profile not found');
+
+    let mealPlan = await client.mealPlan.findUnique({
+      where: { clientId_date: { clientId, date } },
+    });
+
+    if (!mealPlan) {
+      const bmr = this.calculateBMR(profile);
+      const tdee = this.calculateTDEE(bmr, profile.activityLevel);
+      const targetCalories = this.calculateTargetCalories(tdee, profile.goal, profile.targetWeeklyChange);
+      const macros = this.calculateMacros(targetCalories, profile.weightKg, profile.goal);
+
+      mealPlan = await client.mealPlan.create({
+        data: {
+          nutritionProfileId: profile.id,
+          clientId,
+          date,
+          targetCalories: Math.round(targetCalories),
+          targetProtein: macros.protein,
+          targetCarbs: macros.carbs,
+          targetFat: macros.fat,
+        },
+      });
+    }
+
+    return mealPlan;
+  }
+
+  /**
+   * Найти/создать meal определённого типа в плане.
+   * Если уже есть несколько meal одного типа (дубликаты), берёт первый найденный.
+   */
+  async findOrCreateMeal(mealPlanId: string, type: string, time?: string, prismaClient?: any) {
+    const client = prismaClient ?? this.prisma;
+    const existingMeals = await client.meal.findMany({
+      where: { mealPlanId, type },
+      orderBy: { createdAt: 'asc' },
+      take: 1,
+    });
+
+    if (existingMeals.length > 0) {
+      return existingMeals[0];
+    }
+
+    return client.meal.create({
+      data: { mealPlanId, type, time },
+    });
+  }
+
+  /**
+   * Найти/создать food-item по имени (case-insensitive).
+   * Если найдётся — возвращает существующий, если нет — создаёт новый с category: 'ai'.
+   */
+  async findOrCreateFoodItem(
+    item: {
+      name: string;
+      caloriesPer100g: number;
+      proteinPer100g: number;
+      carbsPer100g: number;
+      fatPer100g: number;
+    },
+    prismaClient?: any,
+  ) {
+    const client = prismaClient ?? this.prisma;
+    const existing = await client.foodItem.findFirst({
+      where: { name: { equals: item.name, mode: 'insensitive' } },
+    });
+
+    if (existing) return existing;
+
+    return client.foodItem.create({
+      data: {
+        name: item.name,
+        caloriesPer100g: item.caloriesPer100g,
+        proteinPer100g: item.proteinPer100g,
+        carbsPer100g: item.carbsPer100g,
+        fatPer100g: item.fatPer100g,
+        category: 'ai',
+      },
+    });
+  }
+
+  /**
+   * Вернуть актуально рассчитанные КБЖУ для клиента (без данных профиля).
+   */
+  async getCalculations(clientId: string) {
+    const profile = await this.prisma.nutritionProfile.findUnique({ where: { clientId } });
+    if (!profile) throw new NotFoundException('Nutrition profile not found');
+
+    const bmr = this.calculateBMR(profile);
+    const tdee = this.calculateTDEE(bmr, profile.activityLevel);
+    const targetCalories = this.calculateTargetCalories(tdee, profile.goal, profile.targetWeeklyChange);
+    const macros = this.calculateMacros(targetCalories, profile.weightKg, profile.goal);
+
+    return {
+      bmr: Math.round(bmr),
+      tdee: Math.round(tdee),
+      targetCalories: Math.round(targetCalories),
+      macros,
+    };
+  }
+
   async upsertProfile(dto: CreateNutritionProfileDto, trainerId: string) {
     const trainerClient = await this.prisma.trainerClient.findFirst({
       where: { clientId: dto.clientId, trainerId },
