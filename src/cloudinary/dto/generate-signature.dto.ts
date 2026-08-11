@@ -5,8 +5,8 @@ export class GenerateSignatureDto {
   @ApiProperty({
     example: 'progress-photos',
     description: 'Категория фото',
-    enum: ['progress-photos', 'pose-analysis'],
+    enum: ['progress-photos', 'pose-analysis', 'exercise-photos'],
   })
-  @IsIn(['progress-photos', 'pose-analysis'])
-  category: 'progress-photos' | 'pose-analysis';
+  @IsIn(['progress-photos', 'pose-analysis', 'exercise-photos'])
+  category: 'progress-photos' | 'pose-analysis' | 'exercise-photos';
 }

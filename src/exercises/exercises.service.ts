@@ -7,13 +7,16 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiGateway } from '../ai/ai.gateway';
+import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { CreateExerciseDto, UpdateExerciseDto } from './dto/create-exercise.dto';
+import { UpdateExercisePhotoDto } from './dto/update-exercise-photo.dto';
 
 @Injectable()
 export class ExercisesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly aiGateway: AiGateway,
+    private readonly cloudinaryService: CloudinaryService,
   ) {}
 
   public async findAll(trainerId: string) {
@@ -58,8 +61,42 @@ export class ExercisesService {
     if (!exercise) throw new NotFoundException('Exercise not found');
     if (exercise.trainerId !== trainerId) throw new ForbiddenException();
 
+    if (exercise.imagePublicId) {
+      await this.cloudinaryService.deleteAsset(exercise.imagePublicId);
+    }
+
     await this.prisma.trainerExercise.delete({ where: { id } });
     return { message: 'Exercise deleted' };
+  }
+
+  public async updatePhoto(id: string, trainerId: string, dto: UpdateExercisePhotoDto) {
+    const exercise = await this.prisma.trainerExercise.findUnique({ where: { id } });
+    if (!exercise) throw new NotFoundException('Exercise not found');
+    if (exercise.trainerId !== trainerId) throw new ForbiddenException();
+
+    if (exercise.imagePublicId && exercise.imagePublicId !== dto.publicId) {
+      await this.cloudinaryService.deleteAsset(exercise.imagePublicId);
+    }
+
+    return this.prisma.trainerExercise.update({
+      where: { id },
+      data: { imageUrl: dto.secureUrl, imagePublicId: dto.publicId },
+    });
+  }
+
+  public async removePhoto(id: string, trainerId: string) {
+    const exercise = await this.prisma.trainerExercise.findUnique({ where: { id } });
+    if (!exercise) throw new NotFoundException('Exercise not found');
+    if (exercise.trainerId !== trainerId) throw new ForbiddenException();
+
+    if (exercise.imagePublicId) {
+      await this.cloudinaryService.deleteAsset(exercise.imagePublicId);
+    }
+
+    return this.prisma.trainerExercise.update({
+      where: { id },
+      data: { imageUrl: null, imagePublicId: null },
+    });
   }
 
   // Получить историю весов для упражнения по клиенту

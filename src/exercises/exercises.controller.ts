@@ -6,6 +6,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/roles.decorator';
 import { ExercisesService } from './exercises.service';
 import { CreateExerciseDto, UpdateExerciseDto } from './dto/create-exercise.dto';
+import { UpdateExercisePhotoDto } from './dto/update-exercise-photo.dto';
 import { Role } from '@prisma/client';
 
 @ApiTags('Exercises')
@@ -43,6 +44,28 @@ export class ExercisesController {
   @ApiParam({ name: 'id' })
   public remove(@CurrentUser() user: any, @Param('id') id: string) {
     return this.exercisesService.remove(id, user.id);
+  }
+
+  // === Фото упражнения ===
+
+  @Put(':id/photo')
+  @Roles(Role.TRAINER, Role.TRAINER_CLIENT)
+  @ApiOperation({ summary: 'Привязать загруженное в Cloudinary фото к упражнению' })
+  @ApiParam({ name: 'id' })
+  public updatePhoto(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Body() dto: UpdateExercisePhotoDto,
+  ) {
+    return this.exercisesService.updatePhoto(id, user.id, dto);
+  }
+
+  @Delete(':id/photo')
+  @Roles(Role.TRAINER, Role.TRAINER_CLIENT)
+  @ApiOperation({ summary: 'Удалить фото упражнения' })
+  @ApiParam({ name: 'id' })
+  public removePhoto(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.exercisesService.removePhoto(id, user.id);
   }
 
   // === Прогрессия весов (клиент) ===
