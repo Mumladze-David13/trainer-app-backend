@@ -62,6 +62,7 @@ export class WorkoutsService {
       data: {
         seasonId: dto.seasonId,
         notes: dto.notes,
+        ...(dto.date && { date: new Date(dto.date) }),
         workoutExercises: {
           create: dto.exercises.map((ex) => ({
             exerciseId: ex.exerciseId,
@@ -166,7 +167,10 @@ export class WorkoutsService {
 
     const updated = await this.prisma.workout.update({
       where: { id },
-      data: { ...(dto.notes !== undefined && { notes: dto.notes }) },
+      data: {
+        ...(dto.notes !== undefined && { notes: dto.notes }),
+        ...(dto.date && { date: new Date(dto.date) }),
+      },
       include: {
         workoutExercises: { include: { exercise: { include: { globalExercise: { select: { imageUrl: true } } } } }, orderBy: { order: 'asc' } },
         completion: true,

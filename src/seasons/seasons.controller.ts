@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -48,5 +48,18 @@ export class SeasonsController {
     @Body() dto: Partial<CreateSeasonDto>,
   ) {
     return this.seasonsService.updateSeason(seasonId, user.id, dto);
+  }
+
+  @Delete(':seasonId')
+  @ApiOperation({ summary: 'Удалить сезон' })
+  @ApiParam({ name: 'clientId', description: 'ID клиента' })
+  @ApiParam({ name: 'seasonId', description: 'ID сезона' })
+  @ApiResponse({ status: 200, description: 'Сезон удалён' })
+  @ApiResponse({ status: 404, description: 'Сезон не найден' })
+  public deleteSeason(
+    @CurrentUser() user: any,
+    @Param('seasonId') seasonId: string,
+  ) {
+    return this.seasonsService.deleteSeason(seasonId, user.id);
   }
 }

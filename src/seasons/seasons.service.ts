@@ -75,4 +75,16 @@ export class SeasonsService {
       },
     });
   }
+
+  public async deleteSeason(seasonId: string, trainerId: string) {
+    const season = await this.prisma.season.findUnique({
+      where: { id: seasonId },
+      include: { trainerClient: true },
+    });
+    if (!season) throw new NotFoundException('Season not found');
+    if (season.trainerClient.trainerId !== trainerId) throw new ForbiddenException();
+
+    await this.prisma.season.delete({ where: { id: seasonId } });
+    return { message: 'Season deleted' };
+  }
 }
