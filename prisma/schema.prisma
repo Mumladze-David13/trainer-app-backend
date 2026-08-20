@@ -29,17 +29,19 @@ enum SubscriptionPlan {
 }
 
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  password  String
-  firstName String
-  lastName  String
-  role      Role
-  fcmToken  String?
-  gymId     String?
-  address   Json?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(uuid())
+  email      String   @unique
+  password   String?
+  provider   String?
+  providerId String?
+  firstName  String
+  lastName   String
+  role       Role
+  fcmToken   String?
+  gymId      String?
+  address    Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   gym Gym? @relation(fields: [gymId], references: [id], onDelete: SetNull)
 
@@ -63,6 +65,8 @@ model User {
   clientSessions    ClientSession[]
   clientActivities  ClientActivity[]
   progressPhotos    ProgressPhoto[]
+
+  @@unique([provider, providerId])
 }
 
 model TrainerSettings {
