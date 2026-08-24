@@ -16,7 +16,7 @@ export class WorkoutsController {
   constructor(private readonly workoutsService: WorkoutsService) {}
 
   @Post()
-  @Roles(Role.TRAINER, Role.TRAINER_CLIENT)
+  @Roles(Role.TRAINER, Role.TRAINER_CLIENT, Role.SOLO)
   @ApiOperation({ summary: 'Создать тренировку в сезоне' })
   @ApiResponse({ status: 201, description: 'Тренировка создана' })
   @ApiResponse({ status: 400, description: 'Превышен лимит тренировок в сезоне' })
@@ -34,7 +34,7 @@ export class WorkoutsController {
   }
 
   @Put(':id')
-  @Roles(Role.TRAINER, Role.TRAINER_CLIENT)
+  @Roles(Role.TRAINER, Role.TRAINER_CLIENT, Role.SOLO)
   @ApiOperation({ summary: 'Обновить тренировку (заменяет все упражнения)' })
   @ApiParam({ name: 'id', description: 'ID тренировки' })
   @ApiResponse({ status: 200, description: 'Тренировка обновлена' })
@@ -44,7 +44,7 @@ export class WorkoutsController {
   }
 
   @Delete(':id')
-  @Roles(Role.TRAINER, Role.TRAINER_CLIENT)
+  @Roles(Role.TRAINER, Role.TRAINER_CLIENT, Role.SOLO)
   @ApiOperation({ summary: 'Удалить тренировку' })
   @ApiParam({ name: 'id', description: 'ID тренировки' })
   @ApiResponse({ status: 200, description: 'Тренировка удалена' })

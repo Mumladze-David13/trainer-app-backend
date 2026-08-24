@@ -17,21 +17,21 @@ export class ExercisesController {
   constructor(private readonly exercisesService: ExercisesService) {}
 
   @Get()
-  @Roles(Role.TRAINER, Role.TRAINER_CLIENT)
+  @Roles(Role.TRAINER, Role.TRAINER_CLIENT, Role.SOLO)
   @ApiOperation({ summary: 'Получить список упражнений тренера' })
   public findAll(@CurrentUser() user: any) {
     return this.exercisesService.findAll(user.id);
   }
 
   @Post()
-  @Roles(Role.TRAINER, Role.TRAINER_CLIENT)
+  @Roles(Role.TRAINER, Role.TRAINER_CLIENT, Role.SOLO)
   @ApiOperation({ summary: 'Создать новое упражнение' })
   public create(@CurrentUser() user: any, @Body() dto: CreateExerciseDto) {
     return this.exercisesService.create(user.id, dto);
   }
 
   @Put(':id')
-  @Roles(Role.TRAINER, Role.TRAINER_CLIENT)
+  @Roles(Role.TRAINER, Role.TRAINER_CLIENT, Role.SOLO)
   @ApiOperation({ summary: 'Обновить упражнение' })
   @ApiParam({ name: 'id' })
   public update(@CurrentUser() user: any, @Param('id') id: string, @Body() dto: UpdateExerciseDto) {
@@ -39,7 +39,7 @@ export class ExercisesController {
   }
 
   @Delete(':id')
-  @Roles(Role.TRAINER, Role.TRAINER_CLIENT)
+  @Roles(Role.TRAINER, Role.TRAINER_CLIENT, Role.SOLO)
   @ApiOperation({ summary: 'Удалить упражнение' })
   @ApiParam({ name: 'id' })
   public remove(@CurrentUser() user: any, @Param('id') id: string) {
@@ -49,7 +49,7 @@ export class ExercisesController {
   // === Фото упражнения ===
 
   @Put(':id/photo')
-  @Roles(Role.TRAINER, Role.TRAINER_CLIENT)
+  @Roles(Role.TRAINER, Role.TRAINER_CLIENT, Role.SOLO)
   @ApiOperation({ summary: 'Привязать загруженное в Cloudinary фото к упражнению' })
   @ApiParam({ name: 'id' })
   public updatePhoto(
@@ -61,7 +61,7 @@ export class ExercisesController {
   }
 
   @Delete(':id/photo')
-  @Roles(Role.TRAINER, Role.TRAINER_CLIENT)
+  @Roles(Role.TRAINER, Role.TRAINER_CLIENT, Role.SOLO)
   @ApiOperation({ summary: 'Удалить фото упражнения' })
   @ApiParam({ name: 'id' })
   public removePhoto(@CurrentUser() user: any, @Param('id') id: string) {
@@ -71,7 +71,7 @@ export class ExercisesController {
   // === Прогрессия весов (клиент) ===
 
   @Get(':id/progress')
-  @Roles(Role.CLIENT, Role.TRAINER_CLIENT)
+  @Roles(Role.CLIENT, Role.TRAINER_CLIENT, Role.SOLO)
   @ApiOperation({ summary: 'История весов клиента по упражнению' })
   @ApiParam({ name: 'id', description: 'ID упражнения' })
   public getProgress(@CurrentUser() user: any, @Param('id') id: string) {
@@ -79,7 +79,7 @@ export class ExercisesController {
   }
 
   @Get(':id/progress/analysis')
-  @Roles(Role.CLIENT, Role.TRAINER_CLIENT)
+  @Roles(Role.CLIENT, Role.TRAINER_CLIENT, Role.SOLO)
   @ApiOperation({ summary: 'AI-анализ прогрессии весов (клиент)' })
   @ApiParam({ name: 'id', description: 'ID упражнения' })
   public getProgressAnalysis(@CurrentUser() user: any, @Param('id') id: string) {

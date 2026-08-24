@@ -12,7 +12,7 @@ import { Role } from '@prisma/client';
 @ApiBearerAuth('JWT')
 @Controller('clients/:clientId/seasons')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.TRAINER, Role.TRAINER_CLIENT)
+@Roles(Role.TRAINER, Role.TRAINER_CLIENT, Role.SOLO)
 export class SeasonsController {
   constructor(private readonly seasonsService: SeasonsService) {}
 
