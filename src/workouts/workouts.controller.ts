@@ -53,7 +53,7 @@ export class WorkoutsController {
   }
 
   @Patch(':id/progress')
-  @Roles(Role.CLIENT, Role.TRAINER_CLIENT)
+  @Roles(Role.CLIENT, Role.TRAINER_CLIENT, Role.SOLO)
   @ApiOperation({ summary: 'Сохранить прогресс выполнения (без завершения)' })
   @ApiParam({ name: 'id', description: 'ID тренировки' })
   @ApiResponse({ status: 200, description: 'Прогресс сохранён' })
@@ -62,7 +62,7 @@ export class WorkoutsController {
   }
 
   @Post(':id/complete')
-  @Roles(Role.CLIENT, Role.TRAINER_CLIENT)
+  @Roles(Role.CLIENT, Role.TRAINER_CLIENT, Role.SOLO)
   @ApiOperation({ summary: 'Завершить тренировку (требует ≥50% выполненных упражнений)' })
   @ApiParam({ name: 'id', description: 'ID тренировки' })
   @ApiResponse({ status: 201, description: 'Тренировка завершена' })
@@ -72,7 +72,7 @@ export class WorkoutsController {
   }
 
   @Get('client/:trainerId/seasons')
-  @Roles(Role.CLIENT, Role.TRAINER_CLIENT)
+  @Roles(Role.CLIENT, Role.TRAINER_CLIENT, Role.SOLO)
   @ApiOperation({ summary: 'Клиент: получить свои сезоны от конкретного тренера' })
   @ApiParam({ name: 'trainerId', description: 'ID тренера' })
   @ApiResponse({ status: 200, description: 'Список сезонов с тренировками' })

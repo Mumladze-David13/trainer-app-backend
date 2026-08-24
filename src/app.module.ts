@@ -21,6 +21,7 @@ import { GlobalExercisesModule } from './global-exercises/global-exercises.modul
 import { PoseAnalysisModule } from './pose-analysis/pose-analysis.module';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import { PhotosModule } from './photos/photos.module';
+import { SoloModule } from './solo/solo.module';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { PhotosModule } from './photos/photos.module';
     PoseAnalysisModule,
     CloudinaryModule,
     PhotosModule,
+    SoloModule,
   ],
 })
 export class AppModule {}

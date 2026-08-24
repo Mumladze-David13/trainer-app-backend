@@ -17,7 +17,7 @@ import {
 } from './dto/meal-ai.dto';
 import { NutritionService } from '../nutrition/nutrition.service';
 
-const PLAN_TOKEN_LIMITS: Record<SubscriptionPlan, number> = {
+export const PLAN_TOKEN_LIMITS: Record<SubscriptionPlan, number> = {
   FREE: 50_000,
   BASIC: 300_000,
   PRO: 1_000_000,
@@ -25,8 +25,8 @@ const PLAN_TOKEN_LIMITS: Record<SubscriptionPlan, number> = {
 };
 
 // claude-haiku-4-5 pricing: $0.80/1M input, $4.00/1M output
-const COST_PER_INPUT_TOKEN = 0.80 / 1_000_000;
-const COST_PER_OUTPUT_TOKEN = 4.00 / 1_000_000;
+export const COST_PER_INPUT_TOKEN = 0.80 / 1_000_000;
+export const COST_PER_OUTPUT_TOKEN = 4.00 / 1_000_000;
 
 @Injectable()
 export class AiService {

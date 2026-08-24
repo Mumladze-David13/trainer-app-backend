@@ -8,7 +8,10 @@ export class ClientsService {
 
   public async getMyClients(trainerId: string) {
     const relations = await this.prisma.trainerClient.findMany({
-      where: { trainerId },
+      // Exclude self-training relation (trainerId === clientId), e.g. from
+      // SOLO mode onboarding or a trainer training themselves — that's not
+      // a coaching client, it's the user's own workout history.
+      where: { trainerId, clientId: { not: trainerId } },
       include: {
         client: {
           select: {
