@@ -16,7 +16,7 @@ export class WeightLogController {
   constructor(private readonly weightLogService: WeightLogService) {}
 
   @Post()
-  @Roles(Role.CLIENT, Role.TRAINER_CLIENT)
+  @Roles(Role.CLIENT, Role.TRAINER_CLIENT, Role.SOLO)
   @ApiOperation({ summary: 'Клиент: добавить запись веса' })
   @ApiResponse({ status: 201, description: 'Запись добавлена' })
   addEntry(@CurrentUser() user: any, @Body() dto: CreateWeightLogDto) {
@@ -24,7 +24,7 @@ export class WeightLogController {
   }
 
   @Get()
-  @Roles(Role.CLIENT, Role.TRAINER_CLIENT)
+  @Roles(Role.CLIENT, Role.TRAINER_CLIENT, Role.SOLO)
   @ApiOperation({ summary: 'Клиент: история веса' })
   @ApiResponse({ status: 200, description: 'Список записей' })
   getHistory(@CurrentUser() user: any) {
@@ -32,7 +32,7 @@ export class WeightLogController {
   }
 
   @Get('analysis')
-  @Roles(Role.CLIENT, Role.TRAINER_CLIENT)
+  @Roles(Role.CLIENT, Role.TRAINER_CLIENT, Role.SOLO)
   @ApiOperation({ summary: 'Клиент: AI-анализ динамики веса' })
   @ApiResponse({ status: 200, description: 'Статистика и анализ от AI' })
   getAnalysis(@CurrentUser() user: any) {
@@ -40,7 +40,7 @@ export class WeightLogController {
   }
 
   @Delete(':id')
-  @Roles(Role.CLIENT, Role.TRAINER_CLIENT)
+  @Roles(Role.CLIENT, Role.TRAINER_CLIENT, Role.SOLO)
   @ApiOperation({ summary: 'Клиент: удалить запись' })
   @ApiParam({ name: 'id', description: 'ID записи' })
   deleteEntry(@CurrentUser() user: any, @Param('id') id: string) {

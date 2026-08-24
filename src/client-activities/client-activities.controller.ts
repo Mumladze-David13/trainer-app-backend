@@ -15,21 +15,21 @@ export class ClientActivitiesController {
   constructor(private readonly service: ClientActivitiesService) {}
 
   @Post()
-  @Roles(Role.CLIENT, Role.TRAINER_CLIENT)
+  @Roles(Role.CLIENT, Role.TRAINER_CLIENT, Role.SOLO)
   @ApiOperation({ summary: 'Добавить активность в справочник' })
   create(@CurrentUser() user: any, @Body() dto: CreateClientActivityDto) {
     return this.service.create(user.id, dto);
   }
 
   @Get()
-  @Roles(Role.CLIENT, Role.TRAINER_CLIENT)
+  @Roles(Role.CLIENT, Role.TRAINER_CLIENT, Role.SOLO)
   @ApiOperation({ summary: 'Список активностей клиента' })
   findAll(@CurrentUser() user: any) {
     return this.service.findAll(user.id);
   }
 
   @Put(':id')
-  @Roles(Role.CLIENT, Role.TRAINER_CLIENT)
+  @Roles(Role.CLIENT, Role.TRAINER_CLIENT, Role.SOLO)
   @ApiOperation({ summary: 'Обновить активность' })
   @ApiParam({ name: 'id' })
   update(@CurrentUser() user: any, @Param('id') id: string, @Body() dto: UpdateClientActivityDto) {
@@ -37,7 +37,7 @@ export class ClientActivitiesController {
   }
 
   @Delete(':id')
-  @Roles(Role.CLIENT, Role.TRAINER_CLIENT)
+  @Roles(Role.CLIENT, Role.TRAINER_CLIENT, Role.SOLO)
   @ApiOperation({ summary: 'Удалить активность' })
   @ApiParam({ name: 'id' })
   remove(@CurrentUser() user: any, @Param('id') id: string) {
