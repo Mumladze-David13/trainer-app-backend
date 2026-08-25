@@ -442,3 +442,28 @@ model ProgressPhoto {
 
   client User @relation(fields: [clientId], references: [id], onDelete: Cascade)
 }
+
+// Текущая цена подписки на роль (SOLO/CLIENT/TRAINER/TRAINER_CLIENT).
+// Без истории версий: скидка на первый месяц считается от цены на момент
+// оплаты, поэтому старые значения хранить не нужно — см. SubscriptionPayment.
+model SubscriptionTariff {
+  role      String   @id // "SOLO" | "CLIENT" | "TRAINER" | "TRAINER_CLIENT"
+  priceRub  Int
+  updatedAt DateTime @updatedAt
+}
+
+// Платежи за подписку. Заводится уже сейчас (до появления самого
+// ЮKassa-флоу), т.к. только по ней можно определить "первый месяц" —
+// есть ли у пользователя хоть один succeeded-платёж.
+model SubscriptionPayment {
+  id           String   @id @default(uuid())
+  userId       String
+  role         String
+  fullPriceRub Int
+  chargedRub   Int
+  isFirstMonth Boolean
+  status       String // "pending" | "succeeded" | "failed"
+  createdAt    DateTime @default(now())
+
+  @@index([userId, status])
+}

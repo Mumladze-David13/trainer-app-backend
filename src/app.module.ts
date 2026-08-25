@@ -22,6 +22,7 @@ import { PoseAnalysisModule } from './pose-analysis/pose-analysis.module';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import { PhotosModule } from './photos/photos.module';
 import { SoloModule } from './solo/solo.module';
+import { SubscriptionModule } from './subscription/subscription.module';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { SoloModule } from './solo/solo.module';
     CloudinaryModule,
     PhotosModule,
     SoloModule,
+    SubscriptionModule,
   ],
 })
 export class AppModule {}
