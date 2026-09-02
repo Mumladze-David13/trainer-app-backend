@@ -15,6 +15,7 @@ import {
   GenerateMealPlanDto,
   SaveMealPlanDto,
 } from './dto/meal-ai.dto';
+import { ParseWorkoutDto } from './dto/workout-ai.dto';
 import { NutritionService } from '../nutrition/nutrition.service';
 
 export const PLAN_TOKEN_LIMITS: Record<SubscriptionPlan, number> = {
@@ -329,6 +330,126 @@ ${exerciseList}
         }
       }
     }
+  }
+
+  private validateAndSanitizeWorkoutExercises(parsed: any, validExerciseIds: Set<string>): void {
+    if (!Array.isArray(parsed.exercises)) {
+      throw new BadRequestException('AI response missing "exercises" array');
+    }
+
+    for (const exercise of parsed.exercises) {
+      if (!exercise.name || typeof exercise.name !== 'string') {
+        throw new BadRequestException('AI response exercise missing valid "name"');
+      }
+      if (!Number.isInteger(exercise.sets) || exercise.sets <= 0) {
+        throw new BadRequestException('AI response exercise missing valid "sets"');
+      }
+      if (!Number.isInteger(exercise.reps) || exercise.reps <= 0) {
+        throw new BadRequestException('AI response exercise missing valid "reps"');
+      }
+      if (
+        exercise.weight !== null &&
+        exercise.weight !== undefined &&
+        (typeof exercise.weight !== 'number' || exercise.weight <= 0)
+      ) {
+        throw new BadRequestException('AI response exercise has invalid "weight"');
+      }
+      exercise.weight = exercise.weight ?? null;
+
+      if (exercise.exerciseId && !validExerciseIds.has(exercise.exerciseId)) {
+        exercise.exerciseId = null;
+      }
+    }
+  }
+
+  async parseWorkout(dto: ParseWorkoutDto, trainerId: string) {
+    const settings = await this.getOrCreateSettings(trainerId);
+    const limit = PLAN_TOKEN_LIMITS[settings.plan];
+    const used = await this.getMonthlyTokensUsed(trainerId);
+
+    if (used >= limit) {
+      throw new ForbiddenException(
+        `Исчерпан лимит токенов для тарифа ${settings.plan} (${limit.toLocaleString()} токенов/месяц). Перейдите на более высокий тариф.`,
+      );
+    }
+
+    const exercises = await this.prisma.trainerExercise.findMany({
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    });
+    const exerciseList = exercises.map((e) => `- ${e.name} (id: ${e.id})`).join('\n');
+    const validExerciseIds = new Set(exercises.map((e) => e.id));
+
+    const systemPrompt = `Ты ассистент тренера, разбирающий голосовую надиктовку состава тренировки
+на структурированный список упражнений.
+
+Вот каталог упражнений тренера — используй exerciseId ТОЛЬКО из этого
+списка, если упражнение из текста ему соответствует:
+${exerciseList}
+
+Если упражнения из текста нет в списке или ты не уверен в соответствии —
+верни exerciseId: null и осмысленное название из текста, НЕ выдумывай id.
+
+Отвечай строго в JSON формате без лишнего текста, markdown или пояснений.
+Формат ответа:
+{
+  "exercises": [
+    {
+      "exerciseId": "id из списка или null",
+      "name": "название упражнения",
+      "sets": число_подходов,
+      "reps": число_повторов_в_подходе,
+      "weight": вес_в_кг_число_или_null
+    }
+  ]
+}
+
+Правила:
+- Если в тексте несколько упражнений — верни несколько элементов.
+- sets/reps — если явно не названы, оцени разумные значения по контексту
+  (например "жим лёжа на восьмидесяти" без числа подходов — подставь 3).
+- weight — только если явно назван в тексте (число + "кг"/просто число
+  рядом с упражнением), иначе null — не выдумывай вес.
+- Числительные могут быть словами ("три подхода по десять") — разбирай их
+  как числа.`;
+
+    const { text, usage } = await this.gateway.complete(systemPrompt, dto.text);
+
+    const totalTokens = usage.inputTokens + usage.outputTokens;
+    const costUsd =
+      usage.inputTokens * COST_PER_INPUT_TOKEN +
+      usage.outputTokens * COST_PER_OUTPUT_TOKEN;
+
+    await this.prisma.aiUsageLog.create({
+      data: {
+        trainerId,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        totalTokens,
+        costUsd,
+        operation: 'parse_workout',
+      },
+    });
+
+    let parsed: any;
+    try {
+      const clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      parsed = JSON.parse(clean);
+    } catch {
+      throw new BadRequestException(
+        'AI вернул некорректный формат. Попробуйте ещё раз.',
+      );
+    }
+
+    this.validateAndSanitizeWorkoutExercises(parsed, validExerciseIds);
+
+    return {
+      exercises: parsed.exercises,
+      usage: {
+        totalTokens,
+        costUsd: parseFloat(costUsd.toFixed(6)),
+      },
+    };
   }
 
   async parseMeal(dto: ParseMealDto, trainerId: string) {

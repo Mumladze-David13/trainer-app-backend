@@ -641,6 +641,138 @@ describe('AiService', () => {
     });
   });
 
+  // ─── parseWorkout ─────────────────────────────────────────────────────────
+
+  describe('parseWorkout', () => {
+    const parseWorkoutDto = { text: 'жим лёжа три подхода по десять на восьмидесяти' };
+
+    const validParseWorkoutJson = JSON.stringify({
+      exercises: [{ exerciseId: 'ex-1', name: 'Приседания', sets: 3, reps: 10, weight: 80 }],
+    });
+
+    it('loads the trainer exercise catalog and includes it in the system prompt', async () => {
+      mockAiGateway.complete.mockResolvedValue(makeAiResponse(validParseWorkoutJson));
+
+      await service.parseWorkout(parseWorkoutDto, TRAINER_ID);
+
+      expect(mockPrismaService.trainerExercise.findMany).toHaveBeenCalledWith({
+        select: { id: true, name: true },
+        orderBy: { name: 'asc' },
+      });
+      const [systemPrompt, userMessage] = mockAiGateway.complete.mock.calls[0];
+      expect(systemPrompt).toContain('Приседания (id: ex-1)');
+      expect(userMessage).toBe(parseWorkoutDto.text);
+    });
+
+    it('creates usage log with operation "parse_workout"', async () => {
+      mockAiGateway.complete.mockResolvedValue(makeAiResponse(validParseWorkoutJson, 400, 200));
+
+      await service.parseWorkout(parseWorkoutDto, TRAINER_ID);
+
+      expect(mockPrismaService.aiUsageLog.create).toHaveBeenCalledTimes(1);
+      const logData = mockPrismaService.aiUsageLog.create.mock.calls[0][0].data;
+      expect(logData.operation).toBe('parse_workout');
+      expect(logData.trainerId).toBe(TRAINER_ID);
+      expect(logData.totalTokens).toBe(600);
+    });
+
+    it('throws ForbiddenException when FREE limit is exhausted', async () => {
+      mockPrismaService.aiUsageLog.aggregate.mockResolvedValue({ _sum: { totalTokens: 50_000 } });
+
+      await expect(service.parseWorkout(parseWorkoutDto, TRAINER_ID)).rejects.toThrow(ForbiddenException);
+      expect(mockPrismaService.aiUsageLog.create).not.toHaveBeenCalled();
+    });
+
+    it('throws BadRequestException when AI returns invalid JSON', async () => {
+      mockAiGateway.complete.mockResolvedValue(makeAiResponse('not valid json'));
+
+      await expect(service.parseWorkout(parseWorkoutDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws BadRequestException when AI response missing "exercises" array', async () => {
+      mockAiGateway.complete.mockResolvedValue(makeAiResponse(JSON.stringify({ wrong: 'structure' })));
+
+      await expect(service.parseWorkout(parseWorkoutDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws BadRequestException when sets is not a positive integer', async () => {
+      const invalidJson = JSON.stringify({
+        exercises: [{ exerciseId: null, name: 'Присед', sets: 0, reps: 10, weight: null }],
+      });
+      mockAiGateway.complete.mockResolvedValue(makeAiResponse(invalidJson));
+
+      await expect(service.parseWorkout(parseWorkoutDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws BadRequestException when reps is missing', async () => {
+      const invalidJson = JSON.stringify({
+        exercises: [{ exerciseId: null, name: 'Присед', sets: 3, weight: null }],
+      });
+      mockAiGateway.complete.mockResolvedValue(makeAiResponse(invalidJson));
+
+      await expect(service.parseWorkout(parseWorkoutDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws BadRequestException when weight is negative', async () => {
+      const invalidJson = JSON.stringify({
+        exercises: [{ exerciseId: null, name: 'Присед', sets: 3, reps: 10, weight: -5 }],
+      });
+      mockAiGateway.complete.mockResolvedValue(makeAiResponse(invalidJson));
+
+      await expect(service.parseWorkout(parseWorkoutDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
+    });
+
+    it('allows weight: null (not specified in the text)', async () => {
+      const json = JSON.stringify({
+        exercises: [{ exerciseId: null, name: 'Присед', sets: 3, reps: 10, weight: null }],
+      });
+      mockAiGateway.complete.mockResolvedValue(makeAiResponse(json));
+
+      const result = await service.parseWorkout(parseWorkoutDto, TRAINER_ID);
+
+      expect(result.exercises[0].weight).toBeNull();
+    });
+
+    it('keeps exerciseId when it matches the trainer catalog', async () => {
+      mockAiGateway.complete.mockResolvedValue(makeAiResponse(validParseWorkoutJson));
+
+      const result = await service.parseWorkout(parseWorkoutDto, TRAINER_ID);
+
+      expect(result.exercises[0].exerciseId).toBe('ex-1');
+    });
+
+    it('nulls out an exerciseId the AI hallucinated outside the catalog', async () => {
+      const json = JSON.stringify({
+        exercises: [{ exerciseId: 'made-up-id', name: 'Что-то странное', sets: 3, reps: 10, weight: null }],
+      });
+      mockAiGateway.complete.mockResolvedValue(makeAiResponse(json));
+
+      const result = await service.parseWorkout(parseWorkoutDto, TRAINER_ID);
+
+      expect(result.exercises[0].exerciseId).toBeNull();
+      expect(result.exercises[0].name).toBe('Что-то странное');
+    });
+
+    it('returns exercises and usage when valid response', async () => {
+      mockAiGateway.complete.mockResolvedValue(makeAiResponse(validParseWorkoutJson, 500, 300));
+
+      const result = await service.parseWorkout(parseWorkoutDto, TRAINER_ID);
+
+      expect(result.exercises).toHaveLength(1);
+      expect(result.usage.totalTokens).toBe(800);
+      expect(result.usage.costUsd).toBeCloseTo(0.0016, 6);
+    });
+
+    it('strips markdown code blocks from AI response', async () => {
+      const wrapped = `\`\`\`json\n${validParseWorkoutJson}\n\`\`\``;
+      mockAiGateway.complete.mockResolvedValue(makeAiResponse(wrapped));
+
+      const result = await service.parseWorkout(parseWorkoutDto, TRAINER_ID);
+
+      expect(result.exercises).toHaveLength(1);
+    });
+  });
+
   // ─── logMeal ──────────────────────────────────────────────────────────────
 
   describe('logMeal', () => {

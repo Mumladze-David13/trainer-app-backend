@@ -12,6 +12,7 @@ import {
   GenerateMealPlanDto,
   SaveMealPlanDto,
 } from './dto/meal-ai.dto';
+import { ParseWorkoutDto } from './dto/workout-ai.dto';
 import { Role } from '@prisma/client';
 
 @ApiTags('AI')
@@ -55,6 +56,15 @@ export class AiController {
   @ApiResponse({ status: 403, description: 'Исчерпан месячный лимит токенов тарифа' })
   parseMeal(@Body() dto: ParseMealDto, @CurrentUser() user: any) {
     return this.aiService.parseMeal(dto, user.id);
+  }
+
+  @Post('parse-workout')
+  @Roles(Role.TRAINER, Role.TRAINER_CLIENT)
+  @ApiOperation({ summary: 'Распознать состав тренировки по голосовой надиктовке (текст после speech-to-text на клиенте)' })
+  @ApiResponse({ status: 201, description: 'Список упражнений с sets/reps/weight и exerciseId из каталога тренера, если найден' })
+  @ApiResponse({ status: 403, description: 'Исчерпан месячный лимит токенов тарифа' })
+  parseWorkout(@Body() dto: ParseWorkoutDto, @CurrentUser() user: any) {
+    return this.aiService.parseWorkout(dto, user.id);
   }
 
   @Post('log-meal')
