@@ -456,14 +456,15 @@ model SubscriptionTariff {
 // ЮKassa-флоу), т.к. только по ней можно определить "первый месяц" —
 // есть ли у пользователя хоть один succeeded-платёж.
 model SubscriptionPayment {
-  id           String   @id @default(uuid())
-  userId       String
-  role         String
-  fullPriceRub Int
-  chargedRub   Int
-  isFirstMonth Boolean
-  status       String // "pending" | "succeeded" | "failed"
-  createdAt    DateTime @default(now())
+  id                String   @id @default(uuid())
+  userId            String
+  role              String
+  fullPriceRub      Int
+  chargedRub        Int
+  isFirstMonth      Boolean
+  status            String // "pending" | "succeeded" | "failed" | "canceled"
+  yookassaPaymentId String?  @unique
+  createdAt         DateTime @default(now())
 
   @@index([userId, status])
 }
