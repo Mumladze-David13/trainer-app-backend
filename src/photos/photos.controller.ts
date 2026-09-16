@@ -16,7 +16,7 @@ export class PhotosController {
   constructor(private readonly photosService: PhotosService) {}
 
   @Post()
-  @Roles(Role.CLIENT, Role.TRAINER_CLIENT)
+  @Roles(Role.CLIENT, Role.TRAINER_CLIENT, Role.SOLO)
   @ApiOperation({ summary: 'Клиент: сохранить загруженное фото' })
   @ApiResponse({ status: 201, description: 'Фото сохранено' })
   createPhoto(@CurrentUser() user: any, @Body() dto: CreatePhotoDto) {
@@ -24,7 +24,7 @@ export class PhotosController {
   }
 
   @Get()
-  @Roles(Role.CLIENT, Role.TRAINER_CLIENT)
+  @Roles(Role.CLIENT, Role.TRAINER_CLIENT, Role.SOLO)
   @ApiOperation({ summary: 'Клиент: получить свои фото' })
   @ApiQuery({ name: 'category', required: false, enum: ['progress-photos', 'pose-analysis'] })
   @ApiResponse({ status: 200, description: 'Список фото' })
@@ -33,7 +33,7 @@ export class PhotosController {
   }
 
   @Delete(':id')
-  @Roles(Role.CLIENT, Role.TRAINER_CLIENT)
+  @Roles(Role.CLIENT, Role.TRAINER_CLIENT, Role.SOLO)
   @ApiOperation({ summary: 'Клиент: удалить фото' })
   @ApiParam({ name: 'id', description: 'ID фото' })
   @ApiResponse({ status: 200, description: 'Фото удалено' })

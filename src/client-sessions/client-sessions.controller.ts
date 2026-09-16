@@ -16,7 +16,7 @@ export class ClientSessionsController {
   constructor(private readonly clientSessionsService: ClientSessionsService) {}
 
   @Post()
-  @Roles(Role.CLIENT, Role.TRAINER_CLIENT)
+  @Roles(Role.CLIENT, Role.TRAINER_CLIENT, Role.SOLO)
   @ApiOperation({ summary: 'Клиент: добавить самостоятельное занятие' })
   @ApiResponse({ status: 201, description: 'Занятие создано' })
   create(@CurrentUser() user: any, @Body() dto: CreateClientSessionDto) {
@@ -24,7 +24,7 @@ export class ClientSessionsController {
   }
 
   @Get()
-  @Roles(Role.CLIENT, Role.TRAINER_CLIENT)
+  @Roles(Role.CLIENT, Role.TRAINER_CLIENT, Role.SOLO)
   @ApiOperation({ summary: 'Клиент: список своих занятий' })
   @ApiResponse({ status: 200, description: 'Список занятий' })
   findAll(@CurrentUser() user: any) {
@@ -32,7 +32,7 @@ export class ClientSessionsController {
   }
 
   @Get('burned-calories')
-  @Roles(Role.CLIENT, Role.TRAINER_CLIENT)
+  @Roles(Role.CLIENT, Role.TRAINER_CLIENT, Role.SOLO)
   @ApiOperation({ summary: 'Клиент: потраченные калории за день' })
   @ApiQuery({ name: 'date', example: '2026-06-29', description: 'Дата в формате YYYY-MM-DD' })
   @ApiResponse({ status: 200, description: 'Сожжённые калории' })
@@ -41,7 +41,7 @@ export class ClientSessionsController {
   }
 
   @Get(':id')
-  @Roles(Role.CLIENT, Role.TRAINER_CLIENT)
+  @Roles(Role.CLIENT, Role.TRAINER_CLIENT, Role.SOLO)
   @ApiOperation({ summary: 'Клиент: получить занятие по ID' })
   @ApiParam({ name: 'id', description: 'ID занятия' })
   findOne(@CurrentUser() user: any, @Param('id') id: string) {
@@ -49,7 +49,7 @@ export class ClientSessionsController {
   }
 
   @Put(':id')
-  @Roles(Role.CLIENT, Role.TRAINER_CLIENT)
+  @Roles(Role.CLIENT, Role.TRAINER_CLIENT, Role.SOLO)
   @ApiOperation({ summary: 'Клиент: обновить занятие' })
   @ApiParam({ name: 'id', description: 'ID занятия' })
   update(@CurrentUser() user: any, @Param('id') id: string, @Body() dto: UpdateClientSessionDto) {
@@ -57,7 +57,7 @@ export class ClientSessionsController {
   }
 
   @Delete(':id')
-  @Roles(Role.CLIENT, Role.TRAINER_CLIENT)
+  @Roles(Role.CLIENT, Role.TRAINER_CLIENT, Role.SOLO)
   @ApiOperation({ summary: 'Клиент: удалить занятие' })
   @ApiParam({ name: 'id', description: 'ID занятия' })
   remove(@CurrentUser() user: any, @Param('id') id: string) {

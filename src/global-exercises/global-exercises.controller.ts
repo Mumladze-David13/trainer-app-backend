@@ -17,14 +17,14 @@ export class GlobalExercisesController {
   constructor(private readonly globalExercisesService: GlobalExercisesService) {}
 
   @Get()
-  @Roles(Role.TRAINER, Role.TRAINER_CLIENT)
+  @Roles(Role.TRAINER, Role.TRAINER_CLIENT, Role.SOLO)
   @ApiOperation({ summary: 'Список упражнений из глобального справочника' })
   public findAll(@Query() query: QueryGlobalExerciseDto) {
     return this.globalExercisesService.findAll(query);
   }
 
   @Post('import')
-  @Roles(Role.TRAINER, Role.TRAINER_CLIENT)
+  @Roles(Role.TRAINER, Role.TRAINER_CLIENT, Role.SOLO)
   @ApiOperation({ summary: 'Импортировать упражнения из справочника в свой список (выборочно по ids или весь справочник, если ids не переданы)' })
   public import(@CurrentUser() user: any, @Body() dto: ImportGlobalExerciseDto) {
     return this.globalExercisesService.import(user.id, dto);
