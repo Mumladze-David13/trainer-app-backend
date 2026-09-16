@@ -1,5 +1,6 @@
-import { IsString, IsOptional, IsNumber, Min, MinLength } from 'class-validator';
+import { IsString, IsOptional, IsNumber, IsEnum, IsDateString, Min, MinLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ActivityUnit } from '@prisma/client';
 
 export class CreateClientActivityDto {
   @ApiProperty({ example: 'Бег', description: 'Название активности' })
@@ -17,6 +18,11 @@ export class CreateClientActivityDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @ApiPropertyOptional({ enum: ActivityUnit, example: 'KM', description: 'В чём считать выполнение: разы или километры' })
+  @IsOptional()
+  @IsEnum(ActivityUnit)
+  unit?: ActivityUnit;
 }
 
 export class UpdateClientActivityDto {
@@ -36,4 +42,21 @@ export class UpdateClientActivityDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @ApiPropertyOptional({ enum: ActivityUnit, example: 'KM' })
+  @IsOptional()
+  @IsEnum(ActivityUnit)
+  unit?: ActivityUnit;
+}
+
+export class CreateClientActivityLogDto {
+  @ApiProperty({ example: 5, description: 'Значение в единицах активности (разы или км)' })
+  @IsNumber()
+  @Min(0)
+  value: number;
+
+  @ApiPropertyOptional({ example: '2026-09-16', description: 'Дата выполнения, по умолчанию — сейчас' })
+  @IsOptional()
+  @IsDateString()
+  date?: string;
 }

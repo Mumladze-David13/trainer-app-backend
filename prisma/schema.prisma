@@ -29,6 +29,11 @@ enum SubscriptionPlan {
   UNLIMITED
 }
 
+enum ActivityUnit {
+  TIMES
+  KM
+}
+
 model User {
   id         String   @id @default(uuid())
   email      String   @unique
@@ -358,18 +363,34 @@ model ClientSession {
 }
 
 model ClientActivity {
-  id          String   @id @default(uuid())
+  id          String       @id @default(uuid())
   clientId    String
   name        String
   metValue    Float?
   description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  unit        ActivityUnit @default(TIMES)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 
   client           User                    @relation(fields: [clientId], references: [id], onDelete: Cascade)
   sessionExercises ClientSessionExercise[]
+  logs             ClientActivityLog[]
 
   @@unique([name, clientId])
+}
+
+// Записи фактического выполнения активности из справочника (сколько раз
+// сделал / сколько км прошёл), отдельно от ClientSessionExercise — та привязана
+// к дате конкретного самостоятельного занятия, а лог активности точечный:
+// просто дата + значение в единицах ClientActivity.unit.
+model ClientActivityLog {
+  id               String   @id @default(uuid())
+  clientActivityId String
+  date             DateTime @default(now())
+  value            Float
+  createdAt        DateTime @default(now())
+
+  clientActivity ClientActivity @relation(fields: [clientActivityId], references: [id], onDelete: Cascade)
 }
 
 model ClientSessionExercise {

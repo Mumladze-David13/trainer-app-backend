@@ -1,6 +1,10 @@
 import { Injectable, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateClientActivityDto, UpdateClientActivityDto } from './dto/client-activity.dto';
+import {
+  CreateClientActivityDto,
+  UpdateClientActivityDto,
+  CreateClientActivityLogDto,
+} from './dto/client-activity.dto';
 
 @Injectable()
 export class ClientActivitiesService {
@@ -51,5 +55,41 @@ export class ClientActivitiesService {
     const relation = await this.prisma.trainerClient.findFirst({ where: { trainerId, clientId } });
     if (!relation) throw new NotFoundException('Клиент не найден');
     return this.findAll(clientId);
+  }
+
+  // === Лог фактического выполнения (сколько раз / сколько км) ===
+
+  private async getOwnActivity(activityId: string, clientId: string) {
+    const activity = await this.prisma.clientActivity.findUnique({ where: { id: activityId } });
+    if (!activity) throw new NotFoundException('Активность не найдена');
+    if (activity.clientId !== clientId) throw new ForbiddenException();
+    return activity;
+  }
+
+  async addLog(activityId: string, clientId: string, dto: CreateClientActivityLogDto) {
+    await this.getOwnActivity(activityId, clientId);
+    return this.prisma.clientActivityLog.create({
+      data: {
+        clientActivityId: activityId,
+        value: dto.value,
+        ...(dto.date && { date: new Date(dto.date) }),
+      },
+    });
+  }
+
+  async getLogs(activityId: string, clientId: string) {
+    await this.getOwnActivity(activityId, clientId);
+    return this.prisma.clientActivityLog.findMany({
+      where: { clientActivityId: activityId },
+      orderBy: { date: 'desc' },
+    });
+  }
+
+  async removeLog(activityId: string, logId: string, clientId: string) {
+    await this.getOwnActivity(activityId, clientId);
+    const log = await this.prisma.clientActivityLog.findUnique({ where: { id: logId } });
+    if (!log || log.clientActivityId !== activityId) throw new NotFoundException('Запись не найдена');
+    await this.prisma.clientActivityLog.delete({ where: { id: logId } });
+    return { message: 'Запись удалена' };
   }
 }
