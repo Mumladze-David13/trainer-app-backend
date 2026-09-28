@@ -17,7 +17,7 @@ async function bootstrap() {
   app.enableCors({
     origin: [
       process.env.FRONTEND_URL || 'http://localhost:4200',
-      process.env.FLUTTER_URL || 'http://144.31.189.154:8081',
+      process.env.FLUTTER_URL || 'http://95.81.72.98:8081',
       'https://trainer-app-2026.web.app',
       'https://trainer-app-2026.firebaseapp.com',
     ],

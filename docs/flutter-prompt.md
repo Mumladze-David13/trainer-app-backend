@@ -11,8 +11,8 @@
 
 | Параметр | Значение |
 |----------|----------|
-| Base URL (REST) | `http://144.31.189.154:8080` |
-| WebSocket (чат) | `http://144.31.189.154:8080` namespace `/chat` |
+| Base URL (REST) | `http://95.81.72.98:8080` |
+| WebSocket (чат) | `http://95.81.72.98:8080` namespace `/chat` |
 | Протокол WS | Socket.IO |
 
 > Все REST-запросы (кроме `/auth/*`) требуют заголовка:
@@ -603,11 +603,11 @@ JWT payload: `{ sub: userId, email, iat, exp }`
 
 ### WebSocket (Socket.IO)
 
-**URL:** `http://144.31.189.154:8080/chat`
+**URL:** `http://95.81.72.98:8080/chat`
 
 **Аутентификация при подключении:**
 ```js
-socket = io('http://144.31.189.154:8080/chat', {
+socket = io('http://95.81.72.98:8080/chat', {
   auth: { token: 'eyJhbG...' }
 });
 ```
