@@ -218,14 +218,15 @@ ${exerciseList}
       const globalExercise = exerciseById.get(globalExerciseId);
       if (!globalExercise) return null;
 
+      const name = globalExercise.nameRus ?? globalExercise.name;
       const existing = await this.prisma.trainerExercise.findUnique({
-        where: { name_trainerId: { name: globalExercise.name, trainerId: userId } },
+        where: { name_trainerId: { name, trainerId: userId } },
       });
       const trainerExercise =
         existing ??
         (await this.prisma.trainerExercise.create({
           data: {
-            name: globalExercise.name,
+            name,
             trainerId: userId,
             equipment: globalExercise.equipment,
             globalExerciseId: globalExercise.id,

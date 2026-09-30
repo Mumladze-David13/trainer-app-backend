@@ -20,7 +20,12 @@ export class GlobalExercisesService {
         category: query.category ?? undefined,
         equipment: query.equipment ?? undefined,
         level: query.level ?? undefined,
-        name: query.search ? { contains: query.search, mode: 'insensitive' } : undefined,
+        OR: query.search
+          ? [
+              { name: { contains: query.search, mode: 'insensitive' } },
+              { nameRus: { contains: query.search, mode: 'insensitive' } },
+            ]
+          : undefined,
       },
       orderBy: { name: 'asc' },
     });
@@ -37,7 +42,7 @@ export class GlobalExercisesService {
 
     const result = await this.prisma.trainerExercise.createMany({
       data: source.map((g) => ({
-        name: g.name,
+        name: g.nameRus ?? g.name,
         description: g.description,
         trainerId,
         weightType: weightTypeForEquipment(g.equipment),

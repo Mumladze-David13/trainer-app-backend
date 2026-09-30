@@ -170,7 +170,7 @@ describe('SoloService', () => {
 
       expect(mockPrisma.trainerExercise.create).toHaveBeenCalledWith({
         data: {
-          name: 'Push Up',
+          name: 'Отжимания',
           trainerId: 'u1',
           equipment: 'собственный вес',
           globalExerciseId: 'g1',
