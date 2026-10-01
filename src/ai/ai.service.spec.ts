@@ -11,6 +11,14 @@ import {
 } from '@nestjs/common';
 
 describe('AiService', () => {
+  // Лимиты по умолчанию выключены — в этих тестах проверяем включённый режим
+  beforeAll(() => {
+    process.env.AI_TOKEN_LIMITS_ENABLED = 'true';
+  });
+  afterAll(() => {
+    delete process.env.AI_TOKEN_LIMITS_ENABLED;
+  });
+
   let service: AiService;
 
   const mockPrismaService = {
@@ -28,7 +36,7 @@ describe('AiService', () => {
     $transaction: jest.fn(),
   };
 
-  const mockAiGateway = { complete: jest.fn() };
+  const mockAiGateway = { completeJson: jest.fn() };
 
   const mockAnonymizerService = {
     anonymizeClient: jest.fn(),
@@ -119,7 +127,7 @@ describe('AiService', () => {
     mockPrismaService.trainerClient.findFirst.mockResolvedValue(trainerClient);
     mockAnonymizerService.anonymizeClient.mockReturnValue({ clientHash: 'CLIENT_abc12345' });
     mockAnonymizerService.anonymizeWorkoutHistory.mockReturnValue([]);
-    mockAiGateway.complete.mockResolvedValue(makeAiResponse(validAiJson));
+    mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(validAiJson));
   });
 
   it('should be defined', () => {
@@ -129,6 +137,18 @@ describe('AiService', () => {
   // ─── generateProgram: лимиты ─────────────────────────────────────────────
 
   describe('generateProgram — token limit enforcement', () => {
+    it('does not enforce limits when AI_TOKEN_LIMITS_ENABLED is not "true"', async () => {
+      delete process.env.AI_TOKEN_LIMITS_ENABLED;
+      mockPrismaService.trainerSettings.upsert.mockResolvedValue(makeSettings('FREE'));
+      mockPrismaService.aiUsageLog.aggregate.mockResolvedValue({ _sum: { totalTokens: 10_000_000 } });
+
+      try {
+        await expect(service.generateProgram(generateDto, TRAINER_ID)).resolves.toBeDefined();
+      } finally {
+        process.env.AI_TOKEN_LIMITS_ENABLED = 'true';
+      }
+    });
+
     it('throws ForbiddenException when FREE limit (50 000) is exhausted', async () => {
       mockPrismaService.trainerSettings.upsert.mockResolvedValue(makeSettings('FREE'));
       mockPrismaService.aiUsageLog.aggregate.mockResolvedValue({ _sum: { totalTokens: 50_000 } });
@@ -182,7 +202,7 @@ describe('AiService', () => {
 
   describe('generateProgram — usage logging', () => {
     it('creates an AiUsageLog record after successful API call', async () => {
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(validAiJson, 1200, 800));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(validAiJson, 1200, 800));
 
       await service.generateProgram(generateDto, TRAINER_ID);
 
@@ -190,7 +210,7 @@ describe('AiService', () => {
     });
 
     it('logs correct inputTokens and outputTokens', async () => {
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(validAiJson, 1200, 800));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(validAiJson, 1200, 800));
 
       await service.generateProgram(generateDto, TRAINER_ID);
 
@@ -200,7 +220,7 @@ describe('AiService', () => {
     });
 
     it('logs totalTokens as sum of input + output', async () => {
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(validAiJson, 1200, 800));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(validAiJson, 1200, 800));
 
       await service.generateProgram(generateDto, TRAINER_ID);
 
@@ -209,7 +229,7 @@ describe('AiService', () => {
     });
 
     it('logs correct costUsd: input*0.8/1M + output*4.0/1M', async () => {
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(validAiJson, 1_000_000, 1_000_000));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(validAiJson, 1_000_000, 1_000_000));
 
       await service.generateProgram(generateDto, TRAINER_ID);
 
@@ -253,7 +273,7 @@ describe('AiService', () => {
 
   describe('generateProgram — usage in response', () => {
     it('includes usage field in the response', async () => {
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(validAiJson, 1000, 500));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(validAiJson, 1000, 500));
 
       const result = await service.generateProgram(generateDto, TRAINER_ID);
 
@@ -261,7 +281,7 @@ describe('AiService', () => {
     });
 
     it('returns correct inputTokens and outputTokens in usage', async () => {
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(validAiJson, 1000, 500));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(validAiJson, 1000, 500));
 
       const result = await service.generateProgram(generateDto, TRAINER_ID);
 
@@ -272,7 +292,7 @@ describe('AiService', () => {
 
     it('tokensUsedThisMonth = previously used + this request totalTokens', async () => {
       mockPrismaService.aiUsageLog.aggregate.mockResolvedValue({ _sum: { totalTokens: 10_000 } });
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(validAiJson, 1000, 500));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(validAiJson, 1000, 500));
 
       const result = await service.generateProgram(generateDto, TRAINER_ID);
 
@@ -304,7 +324,7 @@ describe('AiService', () => {
     });
 
     it('costUsd is rounded to 6 decimal places', async () => {
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(validAiJson, 1000, 500));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(validAiJson, 1000, 500));
 
       const result = await service.generateProgram(generateDto, TRAINER_ID);
 
@@ -323,18 +343,9 @@ describe('AiService', () => {
     });
 
     it('throws BadRequestException when AI returns invalid JSON', async () => {
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse('not valid json'));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse('not valid json'));
 
       await expect(service.generateProgram(generateDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
-    });
-
-    it('strips markdown code blocks from AI response', async () => {
-      const wrapped = `\`\`\`json\n${validAiJson}\n\`\`\``;
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(wrapped));
-
-      const result = await service.generateProgram(generateDto, TRAINER_ID);
-
-      expect(result.totalWorkouts).toBe(1);
     });
 
     it('returns workouts, recommendations and totalWorkouts', async () => {
@@ -498,18 +509,18 @@ describe('AiService', () => {
     });
 
     it('calls AiGateway.complete with correct prompts', async () => {
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(validParseMealJson));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(validParseMealJson));
 
       await service.parseMeal(parseMealDto, TRAINER_ID);
 
-      expect(mockAiGateway.complete).toHaveBeenCalledTimes(1);
-      const [systemPrompt, userMessage] = mockAiGateway.complete.mock.calls[0];
+      expect(mockAiGateway.completeJson).toHaveBeenCalledTimes(1);
+      const [systemPrompt, userMessage] = mockAiGateway.completeJson.mock.calls[0];
       expect(systemPrompt).toContain('диетолог');
       expect(userMessage).toContain('гречка с курицей 250г');
     });
 
     it('creates usage log with operation "parse_meal"', async () => {
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(validParseMealJson, 500, 300));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(validParseMealJson, 500, 300));
 
       await service.parseMeal(parseMealDto, TRAINER_ID);
 
@@ -538,19 +549,19 @@ describe('AiService', () => {
     });
 
     it('throws BadRequestException when AI returns invalid JSON', async () => {
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse('not valid json'));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse('not valid json'));
 
       await expect(service.parseMeal(parseMealDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
     });
 
     it('throws BadRequestException when AI response missing "items" array', async () => {
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(JSON.stringify({ wrong: 'structure' })));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(JSON.stringify({ wrong: 'structure' })));
 
       await expect(service.parseMeal(parseMealDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
     });
 
     it('throws BadRequestException when items is not an array', async () => {
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(JSON.stringify({ items: 'not-array' })));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(JSON.stringify({ items: 'not-array' })));
 
       await expect(service.parseMeal(parseMealDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
     });
@@ -559,7 +570,7 @@ describe('AiService', () => {
       const invalidJson = JSON.stringify({
         items: [{ amountGrams: 100, caloriesPer100g: 100, proteinPer100g: 10, carbsPer100g: 10, fatPer100g: 1 }],
       });
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(invalidJson));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(invalidJson));
 
       await expect(service.parseMeal(parseMealDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
     });
@@ -577,7 +588,7 @@ describe('AiService', () => {
           },
         ],
       });
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(invalidJson));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(invalidJson));
 
       await expect(service.parseMeal(parseMealDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
     });
@@ -595,7 +606,7 @@ describe('AiService', () => {
           },
         ],
       });
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(invalidJson));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(invalidJson));
 
       await expect(service.parseMeal(parseMealDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
     });
@@ -604,13 +615,13 @@ describe('AiService', () => {
       const invalidJson = JSON.stringify({
         items: [{ name: 'Гречка', amountGrams: 100, proteinPer100g: 10, carbsPer100g: 10, fatPer100g: 1 }],
       });
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(invalidJson));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(invalidJson));
 
       await expect(service.parseMeal(parseMealDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
     });
 
     it('returns items and usage when valid response', async () => {
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(validParseMealJson, 500, 300));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(validParseMealJson, 500, 300));
 
       const result = await service.parseMeal(parseMealDto, TRAINER_ID);
 
@@ -621,17 +632,8 @@ describe('AiService', () => {
       expect(result.usage.costUsd).toBeCloseTo(0.0016, 6);
     });
 
-    it('strips markdown code blocks from AI response', async () => {
-      const wrapped = `\`\`\`json\n${validParseMealJson}\n\`\`\``;
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(wrapped));
-
-      const result = await service.parseMeal(parseMealDto, TRAINER_ID);
-
-      expect(result.items).toHaveLength(1);
-    });
-
     it('does NOT write to database (no prisma writes except usage log)', async () => {
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(validParseMealJson));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(validParseMealJson));
 
       await service.parseMeal(parseMealDto, TRAINER_ID);
 
@@ -651,7 +653,7 @@ describe('AiService', () => {
     });
 
     it('loads the trainer exercise catalog and includes it in the system prompt', async () => {
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(validParseWorkoutJson));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(validParseWorkoutJson));
 
       await service.parseWorkout(parseWorkoutDto, TRAINER_ID);
 
@@ -659,13 +661,13 @@ describe('AiService', () => {
         select: { id: true, name: true },
         orderBy: { name: 'asc' },
       });
-      const [systemPrompt, userMessage] = mockAiGateway.complete.mock.calls[0];
+      const [systemPrompt, userMessage] = mockAiGateway.completeJson.mock.calls[0];
       expect(systemPrompt).toContain('Приседания (id: ex-1)');
       expect(userMessage).toBe(parseWorkoutDto.text);
     });
 
     it('creates usage log with operation "parse_workout"', async () => {
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(validParseWorkoutJson, 400, 200));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(validParseWorkoutJson, 400, 200));
 
       await service.parseWorkout(parseWorkoutDto, TRAINER_ID);
 
@@ -684,13 +686,13 @@ describe('AiService', () => {
     });
 
     it('throws BadRequestException when AI returns invalid JSON', async () => {
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse('not valid json'));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse('not valid json'));
 
       await expect(service.parseWorkout(parseWorkoutDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
     });
 
     it('throws BadRequestException when AI response missing "exercises" array', async () => {
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(JSON.stringify({ wrong: 'structure' })));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(JSON.stringify({ wrong: 'structure' })));
 
       await expect(service.parseWorkout(parseWorkoutDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
     });
@@ -699,7 +701,7 @@ describe('AiService', () => {
       const invalidJson = JSON.stringify({
         exercises: [{ exerciseId: null, name: 'Присед', sets: 0, reps: 10, weight: null }],
       });
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(invalidJson));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(invalidJson));
 
       await expect(service.parseWorkout(parseWorkoutDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
     });
@@ -708,7 +710,7 @@ describe('AiService', () => {
       const invalidJson = JSON.stringify({
         exercises: [{ exerciseId: null, name: 'Присед', sets: 3, weight: null }],
       });
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(invalidJson));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(invalidJson));
 
       await expect(service.parseWorkout(parseWorkoutDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
     });
@@ -717,7 +719,7 @@ describe('AiService', () => {
       const invalidJson = JSON.stringify({
         exercises: [{ exerciseId: null, name: 'Присед', sets: 3, reps: 10, weight: -5 }],
       });
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(invalidJson));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(invalidJson));
 
       await expect(service.parseWorkout(parseWorkoutDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
     });
@@ -726,7 +728,7 @@ describe('AiService', () => {
       const json = JSON.stringify({
         exercises: [{ exerciseId: null, name: 'Присед', sets: 3, reps: 10, weight: null }],
       });
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(json));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(json));
 
       const result = await service.parseWorkout(parseWorkoutDto, TRAINER_ID);
 
@@ -734,7 +736,7 @@ describe('AiService', () => {
     });
 
     it('keeps exerciseId when it matches the trainer catalog', async () => {
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(validParseWorkoutJson));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(validParseWorkoutJson));
 
       const result = await service.parseWorkout(parseWorkoutDto, TRAINER_ID);
 
@@ -745,7 +747,7 @@ describe('AiService', () => {
       const json = JSON.stringify({
         exercises: [{ exerciseId: 'made-up-id', name: 'Что-то странное', sets: 3, reps: 10, weight: null }],
       });
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(json));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(json));
 
       const result = await service.parseWorkout(parseWorkoutDto, TRAINER_ID);
 
@@ -754,22 +756,13 @@ describe('AiService', () => {
     });
 
     it('returns exercises and usage when valid response', async () => {
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(validParseWorkoutJson, 500, 300));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(validParseWorkoutJson, 500, 300));
 
       const result = await service.parseWorkout(parseWorkoutDto, TRAINER_ID);
 
       expect(result.exercises).toHaveLength(1);
       expect(result.usage.totalTokens).toBe(800);
       expect(result.usage.costUsd).toBeCloseTo(0.0016, 6);
-    });
-
-    it('strips markdown code blocks from AI response', async () => {
-      const wrapped = `\`\`\`json\n${validParseWorkoutJson}\n\`\`\``;
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(wrapped));
-
-      const result = await service.parseWorkout(parseWorkoutDto, TRAINER_ID);
-
-      expect(result.exercises).toHaveLength(1);
     });
   });
 
@@ -814,7 +807,7 @@ describe('AiService', () => {
     it('does NOT call AiGateway.complete', async () => {
       await service.logMeal(logMealDto, TRAINER_ID);
 
-      expect(mockAiGateway.complete).not.toHaveBeenCalled();
+      expect(mockAiGateway.completeJson).not.toHaveBeenCalled();
     });
 
     it('does NOT create usage log', async () => {
@@ -925,7 +918,7 @@ describe('AiService', () => {
     beforeEach(() => {
       mockPrismaService.trainerClient.findFirst.mockResolvedValue({ id: 'tc-1', trainerId: TRAINER_ID, clientId: CLIENT_ID });
       mockNutritionService.getCalculations.mockResolvedValue(mockCalculations);
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(validGenerateMealPlanJson));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(validGenerateMealPlanJson));
     });
 
     it('throws NotFoundException when client not found', async () => {
@@ -957,15 +950,15 @@ describe('AiService', () => {
     it('calls AiGateway.complete with correct prompts', async () => {
       await service.generateMealPlan(generateMealPlanDto, TRAINER_ID);
 
-      expect(mockAiGateway.complete).toHaveBeenCalledTimes(1);
-      const [systemPrompt, userMessage] = mockAiGateway.complete.mock.calls[0];
+      expect(mockAiGateway.completeJson).toHaveBeenCalledTimes(1);
+      const [systemPrompt, userMessage] = mockAiGateway.completeJson.mock.calls[0];
       expect(systemPrompt).toContain('диетолог');
       expect(userMessage).toContain('2500');
       expect(userMessage).toContain('не ем рыбу');
     });
 
     it('creates usage log with operation "generate_meal_plan"', async () => {
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(validGenerateMealPlanJson, 1000, 600));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(validGenerateMealPlanJson, 1000, 600));
 
       await service.generateMealPlan(generateMealPlanDto, TRAINER_ID);
 
@@ -979,19 +972,19 @@ describe('AiService', () => {
     });
 
     it('throws BadRequestException when AI returns invalid JSON', async () => {
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse('not valid json'));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse('not valid json'));
 
       await expect(service.generateMealPlan(generateMealPlanDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
     });
 
     it('throws BadRequestException when AI response missing "meals" array', async () => {
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(JSON.stringify({ wrong: 'structure' })));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(JSON.stringify({ wrong: 'structure' })));
 
       await expect(service.generateMealPlan(generateMealPlanDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
     });
 
     it('throws BadRequestException when meals is not an array', async () => {
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(JSON.stringify({ meals: 'not-array' })));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(JSON.stringify({ meals: 'not-array' })));
 
       await expect(service.generateMealPlan(generateMealPlanDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
     });
@@ -1000,7 +993,7 @@ describe('AiService', () => {
       const invalidJson = JSON.stringify({
         meals: [{ time: '08:00', items: [] }],
       });
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(invalidJson));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(invalidJson));
 
       await expect(service.generateMealPlan(generateMealPlanDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
     });
@@ -1009,7 +1002,7 @@ describe('AiService', () => {
       const invalidJson = JSON.stringify({
         meals: [{ type: 'invalid_type', time: '08:00', items: [] }],
       });
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(invalidJson));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(invalidJson));
 
       await expect(service.generateMealPlan(generateMealPlanDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
     });
@@ -1018,7 +1011,7 @@ describe('AiService', () => {
       const invalidJson = JSON.stringify({
         meals: [{ type: 'breakfast', time: '08:00' }],
       });
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(invalidJson));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(invalidJson));
 
       await expect(service.generateMealPlan(generateMealPlanDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
     });
@@ -1032,13 +1025,13 @@ describe('AiService', () => {
           },
         ],
       });
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(invalidJson));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(invalidJson));
 
       await expect(service.generateMealPlan(generateMealPlanDto, TRAINER_ID)).rejects.toThrow(BadRequestException);
     });
 
     it('returns meals, totals and usage when valid response', async () => {
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(validGenerateMealPlanJson, 1000, 600));
+      mockAiGateway.completeJson.mockResolvedValue(makeAiResponse(validGenerateMealPlanJson, 1000, 600));
 
       const result = await service.generateMealPlan(generateMealPlanDto, TRAINER_ID);
 
@@ -1050,15 +1043,6 @@ describe('AiService', () => {
       expect(result.totals.fat).toBe(2);
       expect(result.usage.totalTokens).toBe(1600);
       expect(result.usage.costUsd).toBeCloseTo(0.003200, 6);
-    });
-
-    it('strips markdown code blocks from AI response', async () => {
-      const wrapped = `\`\`\`json\n${validGenerateMealPlanJson}\n\`\`\``;
-      mockAiGateway.complete.mockResolvedValue(makeAiResponse(wrapped));
-
-      const result = await service.generateMealPlan(generateMealPlanDto, TRAINER_ID);
-
-      expect(result.meals).toHaveLength(1);
     });
 
     it('does NOT write to database (no prisma writes except usage log)', async () => {
@@ -1115,7 +1099,7 @@ describe('AiService', () => {
     it('does NOT call AiGateway.complete', async () => {
       await service.saveMealPlan(saveMealPlanDto, TRAINER_ID);
 
-      expect(mockAiGateway.complete).not.toHaveBeenCalled();
+      expect(mockAiGateway.completeJson).not.toHaveBeenCalled();
     });
 
     it('does NOT create usage log', async () => {

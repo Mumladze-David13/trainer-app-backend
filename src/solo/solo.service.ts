@@ -8,7 +8,7 @@ import {
 import { Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiGateway } from '../ai/ai.gateway';
-import { PLAN_TOKEN_LIMITS, COST_PER_INPUT_TOKEN, COST_PER_OUTPUT_TOKEN } from '../ai/ai.service';
+import { planTokenLimit, COST_PER_INPUT_TOKEN, COST_PER_OUTPUT_TOKEN } from '../ai/ai.service';
 import { CreateSoloProfileDto } from './dto/create-solo-profile.dto';
 
 // Соответствие онбординг-выбора оборудования реальным значениям
@@ -118,7 +118,7 @@ export class SoloService {
       create: { trainerId: userId },
       update: {},
     });
-    const limit = PLAN_TOKEN_LIMITS[settings.plan];
+    const limit = planTokenLimit(settings.plan);
     const used = await this.getMonthlyTokensUsed(userId);
     if (used >= limit) {
       throw new ForbiddenException(
@@ -179,7 +179,7 @@ ${exerciseList}
 
 Создай программу на ${profile.daysPerWeek} занятий.`;
 
-    const { text, usage } = await this.gateway.complete(systemPrompt, userMessage);
+    const { text, usage } = await this.gateway.completeJson(systemPrompt, userMessage);
 
     const totalTokens = usage.inputTokens + usage.outputTokens;
     const costUsd =
@@ -198,8 +198,7 @@ ${exerciseList}
 
     let parsed: any;
     try {
-      const clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
-      parsed = JSON.parse(clean);
+      parsed = JSON.parse(text);
     } catch {
       throw new BadRequestException('AI вернул некорректный формат. Попробуйте ещё раз.');
     }

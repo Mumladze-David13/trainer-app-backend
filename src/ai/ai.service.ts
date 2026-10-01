@@ -25,6 +25,11 @@ export const PLAN_TOKEN_LIMITS: Record<SubscriptionPlan, number> = {
   UNLIMITED: Infinity,
 };
 
+// На время теста лимиты выключены; включаются через AI_TOKEN_LIMITS_ENABLED=true
+export function planTokenLimit(plan: SubscriptionPlan): number {
+  return process.env.AI_TOKEN_LIMITS_ENABLED === 'true' ? PLAN_TOKEN_LIMITS[plan] : Infinity;
+}
+
 // claude-haiku-4-5 pricing: $0.80/1M input, $4.00/1M output
 export const COST_PER_INPUT_TOKEN = 0.80 / 1_000_000;
 export const COST_PER_OUTPUT_TOKEN = 4.00 / 1_000_000;
@@ -61,7 +66,7 @@ export class AiService {
 
   async generateProgram(dto: GenerateProgramDto, trainerId: string) {
     const settings = await this.getOrCreateSettings(trainerId);
-    const limit = PLAN_TOKEN_LIMITS[settings.plan];
+    const limit = planTokenLimit(settings.plan);
     const used = await this.getMonthlyTokensUsed(trainerId);
 
     if (used >= limit) {
@@ -144,7 +149,7 @@ ${exerciseList}
 
 Создай программу на ${dto.daysPerWeek} занятий.`;
 
-    const { text, usage } = await this.gateway.complete(systemPrompt, userMessage);
+    const { text, usage } = await this.gateway.completeJson(systemPrompt, userMessage);
 
     const totalTokens = usage.inputTokens + usage.outputTokens;
     const costUsd =
@@ -164,8 +169,7 @@ ${exerciseList}
 
     let parsed: any;
     try {
-      const clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
-      parsed = JSON.parse(clean);
+      parsed = JSON.parse(text);
     } catch {
       throw new BadRequestException(
         'AI вернул некорректный формат. Попробуйте ещё раз.',
@@ -224,7 +228,7 @@ ${exerciseList}
 
   async getUsage(trainerId: string) {
     const settings = await this.getOrCreateSettings(trainerId);
-    const limit = PLAN_TOKEN_LIMITS[settings.plan];
+    const limit = planTokenLimit(settings.plan);
 
     const startOfMonth = new Date();
     startOfMonth.setDate(1);
@@ -364,7 +368,7 @@ ${exerciseList}
 
   async parseWorkout(dto: ParseWorkoutDto, trainerId: string) {
     const settings = await this.getOrCreateSettings(trainerId);
-    const limit = PLAN_TOKEN_LIMITS[settings.plan];
+    const limit = planTokenLimit(settings.plan);
     const used = await this.getMonthlyTokensUsed(trainerId);
 
     if (used >= limit) {
@@ -413,7 +417,7 @@ ${exerciseList}
 - Числительные могут быть словами ("три подхода по десять") — разбирай их
   как числа.`;
 
-    const { text, usage } = await this.gateway.complete(systemPrompt, dto.text);
+    const { text, usage } = await this.gateway.completeJson(systemPrompt, dto.text);
 
     const totalTokens = usage.inputTokens + usage.outputTokens;
     const costUsd =
@@ -433,8 +437,7 @@ ${exerciseList}
 
     let parsed: any;
     try {
-      const clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
-      parsed = JSON.parse(clean);
+      parsed = JSON.parse(text);
     } catch {
       throw new BadRequestException(
         'AI вернул некорректный формат. Попробуйте ещё раз.',
@@ -454,7 +457,7 @@ ${exerciseList}
 
   async parseMeal(dto: ParseMealDto, trainerId: string) {
     const settings = await this.getOrCreateSettings(trainerId);
-    const limit = PLAN_TOKEN_LIMITS[settings.plan];
+    const limit = planTokenLimit(settings.plan);
     const used = await this.getMonthlyTokensUsed(trainerId);
 
     if (used >= limit) {
@@ -492,7 +495,7 @@ ${exerciseList}
       ? `Приём пищи: ${dto.mealType}\nТекст: ${dto.text}`
       : `Текст: ${dto.text}`;
 
-    const { text, usage } = await this.gateway.complete(systemPrompt, userMessage);
+    const { text, usage } = await this.gateway.completeJson(systemPrompt, userMessage);
 
     const totalTokens = usage.inputTokens + usage.outputTokens;
     const costUsd =
@@ -512,8 +515,7 @@ ${exerciseList}
 
     let parsed: any;
     try {
-      const clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
-      parsed = JSON.parse(clean);
+      parsed = JSON.parse(text);
     } catch {
       throw new BadRequestException(
         'AI вернул некорректный формат. Попробуйте ещё раз.',
@@ -582,7 +584,7 @@ ${exerciseList}
 
   async generateMealPlan(dto: GenerateMealPlanDto, trainerId: string) {
     const settings = await this.getOrCreateSettings(trainerId);
-    const limit = PLAN_TOKEN_LIMITS[settings.plan];
+    const limit = planTokenLimit(settings.plan);
     const used = await this.getMonthlyTokensUsed(trainerId);
 
     if (used >= limit) {
@@ -644,7 +646,7 @@ ${dto.preferences ? `Предпочтения: ${dto.preferences}` : 'Предп
 
 Создай сбалансированное меню из российских блюд.`;
 
-    const { text, usage } = await this.gateway.complete(systemPrompt, userMessage);
+    const { text, usage } = await this.gateway.completeJson(systemPrompt, userMessage);
 
     const totalTokens = usage.inputTokens + usage.outputTokens;
     const costUsd =
@@ -664,8 +666,7 @@ ${dto.preferences ? `Предпочтения: ${dto.preferences}` : 'Предп
 
     let parsed: any;
     try {
-      const clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
-      parsed = JSON.parse(clean);
+      parsed = JSON.parse(text);
     } catch {
       throw new BadRequestException(
         'AI вернул некорректный формат. Попробуйте ещё раз.',

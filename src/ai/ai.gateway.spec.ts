@@ -1,21 +1,40 @@
+import { InternalServerErrorException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { ThinkingLevel } from '@google/genai';
 import { AiGateway } from './ai.gateway';
 
-describe('AiGateway', () => {
-  let gateway: AiGateway;
-  let mockClient: {
-    messages: {
-      create: jest.Mock;
-      stream: jest.Mock;
-    };
+function asyncIterable<T>(items: T[]): AsyncIterable<T> {
+  return {
+    async *[Symbol.asyncIterator]() {
+      for (const item of items) yield item;
+    },
   };
+}
+
+async function collect(gen: AsyncGenerator<string>): Promise<string[]> {
+  const results: string[] = [];
+  for await (const chunk of gen) results.push(chunk);
+  return results;
+}
+
+describe('AiGateway', () => {
+  const originalEnv = process.env;
+  let gateway: AiGateway;
+  let mockClient: { messages: { create: jest.Mock; stream: jest.Mock } };
+  let mockGemini: { models: { generateContent: jest.Mock; generateContentStream: jest.Mock } };
 
   beforeEach(async () => {
-    mockClient = {
-      messages: {
-        create: jest.fn(),
-        stream: jest.fn(),
-      },
+    process.env = {
+      ...originalEnv,
+      ANTHROPIC_API_KEY: 'anthropic-key',
+      GEMINI_API_KEY: 'gemini-key',
+    };
+    delete process.env.AI_PROVIDER;
+    delete process.env.GEMINI_MODEL;
+
+    mockClient = { messages: { create: jest.fn(), stream: jest.fn() } };
+    mockGemini = {
+      models: { generateContent: jest.fn(), generateContentStream: jest.fn() },
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -23,183 +42,209 @@ describe('AiGateway', () => {
     }).compile();
 
     gateway = module.get<AiGateway>(AiGateway);
-    // Replace the private client with our mock
     (gateway as any).client = mockClient;
+    (gateway as any).gemini = mockGemini;
   });
 
-  it('should be defined', () => {
-    expect(gateway).toBeDefined();
+  afterAll(() => {
+    process.env = originalEnv;
   });
 
-  describe('complete', () => {
-    it('should call client.messages.create with correct parameters', async () => {
-      const systemPrompt = 'You are a helpful assistant.';
-      const userMessage = 'Hello, AI!';
+  describe('provider selection', () => {
+    it('uses Anthropic when AI_PROVIDER is not set', async () => {
       mockClient.messages.create.mockResolvedValue({
-        content: [{ type: 'text', text: 'Hello, human!' }],
+        content: [{ type: 'text', text: 'hi' }],
+        usage: { input_tokens: 1, output_tokens: 1 },
       });
 
-      await gateway.complete(systemPrompt, userMessage);
+      await gateway.complete('system', 'user');
+
+      expect(mockClient.messages.create).toHaveBeenCalled();
+      expect(mockGemini.models.generateContent).not.toHaveBeenCalled();
+    });
+
+    it('accepts AI_PROVIDER in any case', async () => {
+      process.env.AI_PROVIDER = ' Gemini ';
+      mockGemini.models.generateContent.mockResolvedValue({ text: 'hi' });
+
+      await gateway.complete('system', 'user');
+
+      expect(mockGemini.models.generateContent).toHaveBeenCalled();
+    });
+
+    it('throws on unknown AI_PROVIDER', async () => {
+      process.env.AI_PROVIDER = 'openai';
+
+      await expect(gateway.complete('system', 'user')).rejects.toThrow(
+        'Неизвестный AI_PROVIDER',
+      );
+    });
+
+    it('throws a clear error when the Anthropic key is missing', async () => {
+      delete process.env.ANTHROPIC_API_KEY;
+
+      await expect(gateway.complete('system', 'user')).rejects.toThrow(
+        new InternalServerErrorException('ИИ-провайдер не настроен: не задан ANTHROPIC_API_KEY'),
+      );
+      expect(mockClient.messages.create).not.toHaveBeenCalled();
+    });
+
+    it('throws a clear error when the Gemini key is missing', async () => {
+      process.env.AI_PROVIDER = 'gemini';
+      delete process.env.GEMINI_API_KEY;
+
+      await expect(gateway.complete('system', 'user')).rejects.toThrow(
+        'не задан GEMINI_API_KEY',
+      );
+      expect(mockGemini.models.generateContent).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Anthropic', () => {
+    it('complete() sends the request and maps text and usage', async () => {
+      mockClient.messages.create.mockResolvedValue({
+        content: [{ type: 'text', text: 'Hello, human!' }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      });
+
+      const result = await gateway.complete('You are helpful.', 'Hello, AI!');
 
       expect(mockClient.messages.create).toHaveBeenCalledWith({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 2048,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: userMessage }],
+        system: 'You are helpful.',
+        messages: [{ role: 'user', content: 'Hello, AI!' }],
+      });
+      expect(result).toEqual({
+        text: 'Hello, human!',
+        usage: { inputTokens: 10, outputTokens: 5 },
       });
     });
 
-    it('should return text from content[0] when type is text', async () => {
+    it('complete() returns empty text when the first block is not text', async () => {
       mockClient.messages.create.mockResolvedValue({
-        content: [{ type: 'text', text: 'Response text' }],
+        content: [{ type: 'tool_use' }],
+        usage: { input_tokens: 1, output_tokens: 1 },
       });
 
-      const result = await gateway.complete('system', 'user message');
+      const result = await gateway.complete('system', 'user');
 
-      expect(result).toBe('Response text');
+      expect(result.text).toBe('');
     });
 
-    it('should return empty string when content[0] type is not text', async () => {
+    it('completeJson() strips ```json fences', async () => {
       mockClient.messages.create.mockResolvedValue({
-        content: [{ type: 'image', data: 'some-image-data' }],
+        content: [{ type: 'text', text: '```json\n{"a":1}\n```' }],
+        usage: { input_tokens: 1, output_tokens: 1 },
       });
 
-      const result = await gateway.complete('system', 'user message');
+      const result = await gateway.completeJson('system', 'user');
 
-      expect(result).toBe('');
+      expect(JSON.parse(result.text)).toEqual({ a: 1 });
     });
 
-    it('should handle empty content array', async () => {
-      mockClient.messages.create.mockResolvedValue({
-        content: [],
-      });
+    it('stream() yields only text deltas', async () => {
+      mockClient.messages.stream.mockReturnValue(
+        asyncIterable([
+          { type: 'message_start' },
+          { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Hello' } },
+          { type: 'content_block_delta', delta: { type: 'input_json_delta', partial_json: '{}' } },
+          { type: 'content_block_delta', delta: { type: 'text_delta', text: ' world' } },
+          { type: 'message_stop' },
+        ]),
+      );
 
-      await expect(gateway.complete('system', 'user message')).rejects.toThrow();
-    });
-  });
-
-  describe('stream', () => {
-    it('should yield text from text_delta chunks', async () => {
-      const chunks = [
-        { type: 'content_block_start', index: 0 },
-        { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Hello' } },
-        { type: 'content_block_delta', delta: { type: 'text_delta', text: ' world' } },
-        { type: 'content_block_stop' },
-      ];
-
-      const asyncIterator = {
-        [Symbol.asyncIterator]() {
-          let index = 0;
-          return {
-            async next() {
-              if (index < chunks.length) {
-                return { value: chunks[index++], done: false };
-              }
-              return { done: true, value: undefined };
-            },
-          };
-        },
-      };
-
-      mockClient.messages.stream.mockReturnValue(asyncIterator);
-
-      const results: string[] = [];
-      for await (const chunk of gateway.stream('system', 'user message')) {
-        results.push(chunk);
-      }
+      const results = await collect(gateway.stream('system', 'user'));
 
       expect(results).toEqual(['Hello', ' world']);
-    });
-
-    it('should skip chunks that are not content_block_delta', async () => {
-      const chunks = [
-        { type: 'message_start' },
-        { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Test' } },
-        { type: 'ping' },
-        { type: 'message_stop' },
-      ];
-
-      const asyncIterator = {
-        [Symbol.asyncIterator]() {
-          let index = 0;
-          return {
-            async next() {
-              if (index < chunks.length) {
-                return { value: chunks[index++], done: false };
-              }
-              return { done: true, value: undefined };
-            },
-          };
-        },
-      };
-
-      mockClient.messages.stream.mockReturnValue(asyncIterator);
-
-      const results: string[] = [];
-      for await (const chunk of gateway.stream('system', 'user message')) {
-        results.push(chunk);
-      }
-
-      expect(results).toEqual(['Test']);
-    });
-
-    it('should skip content_block_delta with non-text_delta type', async () => {
-      const chunks = [
-        { type: 'content_block_delta', delta: { type: 'input_json_delta', partial_json: '{}' } },
-        { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Only this' } },
-      ];
-
-      const asyncIterator = {
-        [Symbol.asyncIterator]() {
-          let index = 0;
-          return {
-            async next() {
-              if (index < chunks.length) {
-                return { value: chunks[index++], done: false };
-              }
-              return { done: true, value: undefined };
-            },
-          };
-        },
-      };
-
-      mockClient.messages.stream.mockReturnValue(asyncIterator);
-
-      const results: string[] = [];
-      for await (const chunk of gateway.stream('system', 'user message')) {
-        results.push(chunk);
-      }
-
-      expect(results).toEqual(['Only this']);
-    });
-
-    it('should call client.messages.stream with correct parameters', async () => {
-      const systemPrompt = 'System prompt';
-      const userMessage = 'User message';
-
-      const asyncIterator = {
-        [Symbol.asyncIterator]() {
-          return {
-            async next() {
-              return { done: true, value: undefined };
-            },
-          };
-        },
-      };
-
-      mockClient.messages.stream.mockReturnValue(asyncIterator);
-
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      for await (const _ of gateway.stream(systemPrompt, userMessage)) {
-        // iterate to trigger call
-      }
-
       expect(mockClient.messages.stream).toHaveBeenCalledWith({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 2048,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: userMessage }],
+        system: 'system',
+        messages: [{ role: 'user', content: 'user' }],
       });
+    });
+  });
+
+  describe('Gemini', () => {
+    beforeEach(() => {
+      process.env.AI_PROVIDER = 'gemini';
+    });
+
+    it('complete() sends the request with minimal thinking and the default model', async () => {
+      mockGemini.models.generateContent.mockResolvedValue({
+        text: 'Привет!',
+        usageMetadata: { promptTokenCount: 3, candidatesTokenCount: 7, thoughtsTokenCount: 20 },
+      });
+
+      const result = await gateway.complete('system', 'Скажи привет');
+
+      expect(mockGemini.models.generateContent).toHaveBeenCalledWith({
+        model: 'gemini-3.8-flash',
+        contents: 'Скажи привет',
+        config: {
+          systemInstruction: 'system',
+          maxOutputTokens: 8192,
+          thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
+        },
+      });
+      // токены размышлений считаются как выходные
+      expect(result).toEqual({
+        text: 'Привет!',
+        usage: { inputTokens: 3, outputTokens: 27 },
+      });
+    });
+
+    it('uses GEMINI_MODEL when set', async () => {
+      process.env.GEMINI_MODEL = 'gemini-3.8-pro';
+      mockGemini.models.generateContent.mockResolvedValue({ text: 'ok' });
+
+      await gateway.complete('system', 'user');
+
+      expect(mockGemini.models.generateContent).toHaveBeenCalledWith(
+        expect.objectContaining({ model: 'gemini-3.8-pro' }),
+      );
+    });
+
+    it('complete() tolerates missing text and usage', async () => {
+      mockGemini.models.generateContent.mockResolvedValue({});
+
+      const result = await gateway.complete('system', 'user');
+
+      expect(result).toEqual({ text: '', usage: { inputTokens: 0, outputTokens: 0 } });
+    });
+
+    it('completeJson() requests application/json', async () => {
+      mockGemini.models.generateContent.mockResolvedValue({ text: '{"workouts":[]}' });
+
+      const result = await gateway.completeJson('system', 'user');
+
+      expect(mockGemini.models.generateContent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          config: expect.objectContaining({ responseMimeType: 'application/json' }),
+        }),
+      );
+      expect(JSON.parse(result.text)).toEqual({ workouts: [] });
+    });
+
+    it('complete() does not request JSON', async () => {
+      mockGemini.models.generateContent.mockResolvedValue({ text: 'ok' });
+
+      await gateway.complete('system', 'user');
+
+      const { config } = mockGemini.models.generateContent.mock.calls[0][0];
+      expect(config.responseMimeType).toBeUndefined();
+    });
+
+    it('stream() yields non-empty chunk texts', async () => {
+      mockGemini.models.generateContentStream.mockResolvedValue(
+        asyncIterable([{ text: 'При' }, { text: undefined }, { text: 'вет' }]),
+      );
+
+      const results = await collect(gateway.stream('system', 'user'));
+
+      expect(results).toEqual(['При', 'вет']);
+      expect(mockClient.messages.stream).not.toHaveBeenCalled();
     });
   });
 });

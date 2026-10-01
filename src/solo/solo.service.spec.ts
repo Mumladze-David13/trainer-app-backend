@@ -6,6 +6,13 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AiGateway } from '../ai/ai.gateway';
 
 describe('SoloService', () => {
+  beforeAll(() => {
+    process.env.AI_TOKEN_LIMITS_ENABLED = 'true';
+  });
+  afterAll(() => {
+    delete process.env.AI_TOKEN_LIMITS_ENABLED;
+  });
+
   let service: SoloService;
 
   const mockPrisma = {
@@ -21,7 +28,7 @@ describe('SoloService', () => {
     workout: { create: jest.fn() },
   };
 
-  const mockGateway = { complete: jest.fn() };
+  const mockGateway = { completeJson: jest.fn() };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -127,7 +134,7 @@ describe('SoloService', () => {
       mockPrisma.aiUsageLog.aggregate.mockResolvedValue({ _sum: { totalTokens: 999_999_999 } });
 
       await expect(service.generateInitialProgram('u1')).rejects.toThrow(ForbiddenException);
-      expect(mockGateway.complete).not.toHaveBeenCalled();
+      expect(mockGateway.completeJson).not.toHaveBeenCalled();
     });
 
     it('creates a season with materialized TrainerExercise rows from the AI response', async () => {
@@ -145,7 +152,7 @@ describe('SoloService', () => {
       mockPrisma.globalExercise.findMany.mockResolvedValue([
         { id: 'g1', name: 'Push Up', nameRus: 'Отжимания', equipment: 'собственный вес' },
       ]);
-      mockGateway.complete.mockResolvedValue({
+      mockGateway.completeJson.mockResolvedValue({
         text: JSON.stringify({
           workouts: [
             {
@@ -198,7 +205,7 @@ describe('SoloService', () => {
       mockPrisma.trainerSettings.upsert.mockResolvedValue({ trainerId: 'u1', plan: 'FREE' });
       mockPrisma.aiUsageLog.aggregate.mockResolvedValue({ _sum: { totalTokens: 0 } });
       mockPrisma.globalExercise.findMany.mockResolvedValue([{ id: 'g1', name: 'Push Up', equipment: null }]);
-      mockGateway.complete.mockResolvedValue({ text: 'not json', usage: { inputTokens: 1, outputTokens: 1 } });
+      mockGateway.completeJson.mockResolvedValue({ text: 'not json', usage: { inputTokens: 1, outputTokens: 1 } });
 
       await expect(service.generateInitialProgram('u1')).rejects.toThrow(BadRequestException);
     });
