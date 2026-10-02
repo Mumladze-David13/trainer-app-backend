@@ -36,7 +36,7 @@ describe('AiService', () => {
     $transaction: jest.fn(),
   };
 
-  const mockAiGateway = { completeJson: jest.fn() };
+  const mockAiGateway = { completeJson: jest.fn(), completeJsonWithAudio: jest.fn() };
 
   const mockAnonymizerService = {
     anonymizeClient: jest.fn(),
@@ -763,6 +763,99 @@ describe('AiService', () => {
       expect(result.exercises).toHaveLength(1);
       expect(result.usage.totalTokens).toBe(800);
       expect(result.usage.costUsd).toBeCloseTo(0.0016, 6);
+    });
+  });
+
+  // ─── parseWorkoutAudio ────────────────────────────────────────────────────
+
+  describe('parseWorkoutAudio', () => {
+    const makeFile = (mimetype = 'audio/mp4', buffer = Buffer.from('audio-bytes')) =>
+      ({ buffer, mimetype, size: buffer.length }) as Express.Multer.File;
+
+    const validAudioJson = JSON.stringify({
+      transcript: 'присед три по десять',
+      exercises: [{ exerciseId: 'ex-1', name: 'Приседания', sets: 3, reps: 10, weight: null }],
+    });
+
+    it('sends the catalog prompt with the audio paragraph and the file buffer', async () => {
+      mockAiGateway.completeJsonWithAudio.mockResolvedValue(makeAiResponse(validAudioJson));
+      const file = makeFile();
+
+      const result = await service.parseWorkoutAudio(file, TRAINER_ID);
+
+      const [systemPrompt, audio, mimeType] = mockAiGateway.completeJsonWithAudio.mock.calls[0];
+      expect(systemPrompt).toContain('Приседания (id: ex-1)');
+      expect(systemPrompt).toContain('"transcript"');
+      expect(audio).toBe(file.buffer);
+      expect(mimeType).toBe('audio/mp4');
+      expect(result.transcript).toBe('присед три по десять');
+      expect(result.exercises[0].exerciseId).toBe('ex-1');
+    });
+
+    it('falls back to audio/mp4 for a non-audio mime type', async () => {
+      mockAiGateway.completeJsonWithAudio.mockResolvedValue(makeAiResponse(validAudioJson));
+
+      await service.parseWorkoutAudio(makeFile('application/octet-stream'), TRAINER_ID);
+
+      expect(mockAiGateway.completeJsonWithAudio.mock.calls[0][2]).toBe('audio/mp4');
+    });
+
+    it('nulls out an exerciseId outside the catalog', async () => {
+      const json = JSON.stringify({
+        transcript: 'что-то',
+        exercises: [{ exerciseId: 'made-up-id', name: 'Что-то', sets: 3, reps: 10, weight: null }],
+      });
+      mockAiGateway.completeJsonWithAudio.mockResolvedValue(makeAiResponse(json));
+
+      const result = await service.parseWorkoutAudio(makeFile(), TRAINER_ID);
+
+      expect(result.exercises[0].exerciseId).toBeNull();
+    });
+
+    it('creates usage log with operation "parse_workout_audio"', async () => {
+      mockAiGateway.completeJsonWithAudio.mockResolvedValue(makeAiResponse(validAudioJson, 900, 100));
+
+      const result = await service.parseWorkoutAudio(makeFile(), TRAINER_ID);
+
+      const logData = mockPrismaService.aiUsageLog.create.mock.calls[0][0].data;
+      expect(logData.operation).toBe('parse_workout_audio');
+      expect(logData.totalTokens).toBe(1000);
+      expect(result.usage.totalTokens).toBe(1000);
+    });
+
+    it('returns empty exercises when speech was recognized but has no exercises', async () => {
+      mockAiGateway.completeJsonWithAudio.mockResolvedValue(
+        makeAiResponse(JSON.stringify({ transcript: 'привет', exercises: [] })),
+      );
+
+      const result = await service.parseWorkoutAudio(makeFile(), TRAINER_ID);
+
+      expect(result.exercises).toEqual([]);
+    });
+
+    it('throws BadRequestException when nothing was recognized', async () => {
+      mockAiGateway.completeJsonWithAudio.mockResolvedValue(
+        makeAiResponse(JSON.stringify({ transcript: '', exercises: [] })),
+      );
+
+      await expect(service.parseWorkoutAudio(makeFile(), TRAINER_ID)).rejects.toThrow(
+        'Не удалось распознать речь',
+      );
+    });
+
+    it('throws BadRequestException when no file or an empty file is sent', async () => {
+      await expect(service.parseWorkoutAudio(undefined, TRAINER_ID)).rejects.toThrow(BadRequestException);
+      await expect(
+        service.parseWorkoutAudio(makeFile('audio/mp4', Buffer.alloc(0)), TRAINER_ID),
+      ).rejects.toThrow('Файл записи не передан');
+      expect(mockAiGateway.completeJsonWithAudio).not.toHaveBeenCalled();
+    });
+
+    it('throws ForbiddenException when FREE limit is exhausted', async () => {
+      mockPrismaService.aiUsageLog.aggregate.mockResolvedValue({ _sum: { totalTokens: 50_000 } });
+
+      await expect(service.parseWorkoutAudio(makeFile(), TRAINER_ID)).rejects.toThrow(ForbiddenException);
+      expect(mockAiGateway.completeJsonWithAudio).not.toHaveBeenCalled();
     });
   });
 

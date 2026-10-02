@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { SubscriptionPlan } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { AiGateway } from './ai.gateway';
+import { AiGateway, AiResponse } from './ai.gateway';
 import { AnonymizerService } from './anonymizer.service';
 import { GenerateProgramDto, SaveGeneratedProgramDto } from './dto/generate-program.dto';
 import {
@@ -366,7 +366,7 @@ ${exerciseList}
     }
   }
 
-  async parseWorkout(dto: ParseWorkoutDto, trainerId: string) {
+  private async assertTokenLimit(trainerId: string): Promise<void> {
     const settings = await this.getOrCreateSettings(trainerId);
     const limit = planTokenLimit(settings.plan);
     const used = await this.getMonthlyTokensUsed(trainerId);
@@ -376,7 +376,10 @@ ${exerciseList}
         `Исчерпан лимит токенов для тарифа ${settings.plan} (${limit.toLocaleString()} токенов/месяц). Перейдите на более высокий тариф.`,
       );
     }
+  }
 
+  // Общий для текстового и аудио-разбора тренировки промт с каталогом упражнений
+  private async buildWorkoutParsePrompt() {
     const exercises = await this.prisma.trainerExercise.findMany({
       select: { id: true, name: true },
       orderBy: { name: 'asc' },
@@ -417,8 +420,17 @@ ${exerciseList}
 - Числительные могут быть словами ("три подхода по десять") — разбирай их
   как числа.`;
 
-    const { text, usage } = await this.gateway.completeJson(systemPrompt, dto.text);
+    return { systemPrompt, validExerciseIds };
+  }
 
+  // Логирует расход и валидирует ответ модели при разборе тренировки
+  private async finishWorkoutParse(
+    response: AiResponse,
+    trainerId: string,
+    operation: string,
+    validExerciseIds: Set<string>,
+  ) {
+    const { text, usage } = response;
     const totalTokens = usage.inputTokens + usage.outputTokens;
     const costUsd =
       usage.inputTokens * COST_PER_INPUT_TOKEN +
@@ -431,7 +443,7 @@ ${exerciseList}
         outputTokens: usage.outputTokens,
         totalTokens,
         costUsd,
-        operation: 'parse_workout',
+        operation,
       },
     });
 
@@ -447,12 +459,61 @@ ${exerciseList}
     this.validateAndSanitizeWorkoutExercises(parsed, validExerciseIds);
 
     return {
-      exercises: parsed.exercises,
+      parsed,
       usage: {
         totalTokens,
         costUsd: parseFloat(costUsd.toFixed(6)),
       },
     };
+  }
+
+  async parseWorkout(dto: ParseWorkoutDto, trainerId: string) {
+    await this.assertTokenLimit(trainerId);
+    const { systemPrompt, validExerciseIds } = await this.buildWorkoutParsePrompt();
+
+    const response = await this.gateway.completeJson(systemPrompt, dto.text);
+    const { parsed, usage } = await this.finishWorkoutParse(
+      response,
+      trainerId,
+      'parse_workout',
+      validExerciseIds,
+    );
+
+    return { exercises: parsed.exercises, usage };
+  }
+
+  async parseWorkoutAudio(file: Express.Multer.File | undefined, trainerId: string) {
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('Файл записи не передан');
+    }
+
+    await this.assertTokenLimit(trainerId);
+    const { systemPrompt, validExerciseIds } = await this.buildWorkoutParsePrompt();
+
+    const audioPrompt = `${systemPrompt}
+
+Тебе передана аудиозапись: тренер на русском надиктовывает состав тренировки.
+Сначала распознай речь, затем разбери её по правилам выше.
+Дополнительно верни поле "transcript" — распознанный текст целиком.
+Если в записи нет речи или в ней нет упражнений — верни {"transcript": "...", "exercises": []}.`;
+
+    // Dio может прислать application/octet-stream — для Gemini нужен audio/*
+    const mimeType = file.mimetype?.startsWith('audio/') ? file.mimetype : 'audio/mp4';
+
+    const response = await this.gateway.completeJsonWithAudio(audioPrompt, file.buffer, mimeType);
+    const { parsed, usage } = await this.finishWorkoutParse(
+      response,
+      trainerId,
+      'parse_workout_audio',
+      validExerciseIds,
+    );
+
+    const transcript = typeof parsed.transcript === 'string' ? parsed.transcript.trim() : '';
+    if (parsed.exercises.length === 0 && !transcript) {
+      throw new BadRequestException('Не удалось распознать речь в записи. Попробуйте ещё раз.');
+    }
+
+    return { exercises: parsed.exercises, transcript, usage };
   }
 
   async parseMeal(dto: ParseMealDto, trainerId: string) {

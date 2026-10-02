@@ -1,4 +1,4 @@
-import { InternalServerErrorException } from '@nestjs/common';
+import { BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ThinkingLevel } from '@google/genai';
 import { AiGateway } from './ai.gateway';
@@ -185,7 +185,7 @@ describe('AiGateway', () => {
         config: {
           systemInstruction: 'system',
           maxOutputTokens: 8192,
-          thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
         },
       });
       // токены размышлений считаются как выходные
@@ -245,6 +245,60 @@ describe('AiGateway', () => {
 
       expect(results).toEqual(['При', 'вет']);
       expect(mockClient.messages.stream).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('completeJsonWithAudio', () => {
+    const audio = Buffer.from('fake-m4a-bytes');
+
+    it('sends inline base64 audio with the given mime type and requests JSON (gemini)', async () => {
+      process.env.AI_PROVIDER = 'gemini';
+      mockGemini.models.generateContent.mockResolvedValue({
+        text: '```json\n{"exercises":[]}\n```',
+        usageMetadata: { promptTokenCount: 900, candidatesTokenCount: 50 },
+      });
+
+      const result = await gateway.completeJsonWithAudio('system', audio, 'audio/mp4', 'подсказка');
+
+      expect(mockGemini.models.generateContent).toHaveBeenCalledWith({
+        model: 'gemini-3.8-flash',
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { inlineData: { mimeType: 'audio/mp4', data: audio.toString('base64') } },
+              { text: 'подсказка' },
+            ],
+          },
+        ],
+        config: {
+          systemInstruction: 'system',
+          maxOutputTokens: 8192,
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          responseMimeType: 'application/json',
+        },
+      });
+      expect(result).toEqual({
+        text: '{"exercises":[]}',
+        usage: { inputTokens: 900, outputTokens: 50 },
+      });
+    });
+
+    it('omits the text part when no user text is given', async () => {
+      process.env.AI_PROVIDER = 'gemini';
+      mockGemini.models.generateContent.mockResolvedValue({ text: '{}' });
+
+      await gateway.completeJsonWithAudio('system', audio, 'audio/mp4');
+
+      const { contents } = mockGemini.models.generateContent.mock.calls[0][0];
+      expect(contents[0].parts).toHaveLength(1);
+    });
+
+    it('throws BadRequestException for anthropic', async () => {
+      await expect(
+        gateway.completeJsonWithAudio('system', audio, 'audio/mp4'),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockClient.messages.create).not.toHaveBeenCalled();
     });
   });
 });

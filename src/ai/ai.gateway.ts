@@ -1,9 +1,15 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
 import {
+  ContentListUnion,
   GenerateContentConfig,
   GenerateContentResponse,
   GoogleGenAI,
+  Part,
   ThinkingLevel,
 } from '@google/genai';
 
@@ -48,6 +54,29 @@ export class AiGateway {
         : await this.anthropicComplete(systemPrompt, userMessage);
 
     return { ...response, text: stripJsonFence(response.text) };
+  }
+
+  // Распознавание речи и разбор одним вызовом — аудио принимает только Gemini
+  async completeJsonWithAudio(
+    systemPrompt: string,
+    audio: Buffer,
+    mimeType: string,
+    userText?: string,
+  ): Promise<AiResponse> {
+    if (this.provider() !== 'gemini') {
+      throw new BadRequestException(
+        'Распознавание аудио доступно только при AI_PROVIDER=gemini',
+      );
+    }
+
+    const parts: Part[] = [{ inlineData: { mimeType, data: audio.toString('base64') } }];
+    if (userText) parts.push({ text: userText });
+
+    const response = await this.geminiClient().models.generateContent(
+      this.geminiRequest(systemPrompt, [{ role: 'user', parts }], true),
+    );
+
+    return { text: stripJsonFence(response.text ?? ''), usage: geminiUsage(response) };
   }
 
   async *stream(
@@ -122,17 +151,18 @@ export class AiGateway {
     return this.gemini;
   }
 
-  private geminiRequest(systemPrompt: string, userMessage: string, json: boolean) {
+  private geminiRequest(systemPrompt: string, contents: ContentListUnion, json: boolean) {
     const config: GenerateContentConfig = {
       systemInstruction: systemPrompt,
       maxOutputTokens: GEMINI_MAX_TOKENS,
-      thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
+      // MINIMAL gemini-3.8-flash не принимает (400), LOW почти не тратит токены на размышления
+      thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
     };
     if (json) config.responseMimeType = 'application/json';
 
     return {
       model: process.env.GEMINI_MODEL || GEMINI_DEFAULT_MODEL,
-      contents: userMessage,
+      contents,
       config,
     };
   }

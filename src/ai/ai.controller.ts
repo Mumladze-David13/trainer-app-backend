@@ -1,5 +1,21 @@
-import { Controller, Post, Get, Body, UseGuards } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  Controller,
+  Post,
+  Get,
+  Body,
+  UseGuards,
+  UseInterceptors,
+  UploadedFile,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiConsumes,
+  ApiBody,
+} from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -65,6 +81,26 @@ export class AiController {
   @ApiResponse({ status: 403, description: 'Исчерпан месячный лимит токенов тарифа' })
   parseWorkout(@Body() dto: ParseWorkoutDto, @CurrentUser() user: any) {
     return this.aiService.parseWorkout(dto, user.id);
+  }
+
+  @Post('parse-workout-audio')
+  @Roles(Role.TRAINER, Role.TRAINER_CLIENT, Role.SOLO)
+  @UseInterceptors(FileInterceptor('audio', { limits: { fileSize: 20 * 1024 * 1024 } }))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: { audio: { type: 'string', format: 'binary' } },
+      required: ['audio'],
+    },
+  })
+  @ApiOperation({ summary: 'Распознать состав тренировки по аудиозаписи (только AI_PROVIDER=gemini)' })
+  @ApiResponse({ status: 201, description: 'Список упражнений как у parse-workout плюс transcript' })
+  @ApiResponse({ status: 400, description: 'Нет файла, речь не распознана или провайдер не поддерживает аудио' })
+  @ApiResponse({ status: 403, description: 'Исчерпан месячный лимит токенов тарифа' })
+  @ApiResponse({ status: 413, description: 'Файл больше 20 МБ' })
+  parseWorkoutAudio(@UploadedFile() file: Express.Multer.File, @CurrentUser() user: any) {
+    return this.aiService.parseWorkoutAudio(file, user.id);
   }
 
   @Post('log-meal')
