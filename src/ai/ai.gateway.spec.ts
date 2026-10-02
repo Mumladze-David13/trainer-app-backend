@@ -1,6 +1,11 @@
-import { BadRequestException, InternalServerErrorException } from '@nestjs/common';
+import {
+  BadRequestException,
+  HttpStatus,
+  InternalServerErrorException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { ThinkingLevel } from '@google/genai';
+import { ApiError, ThinkingLevel } from '@google/genai';
 import { AiGateway } from './ai.gateway';
 
 function asyncIterable<T>(items: T[]): AsyncIterable<T> {
@@ -234,6 +239,65 @@ describe('AiGateway', () => {
 
       const { config } = mockGemini.models.generateContent.mock.calls[0][0];
       expect(config.responseMimeType).toBeUndefined();
+    });
+
+    describe('errors', () => {
+      beforeEach(() => {
+        jest.spyOn(global, 'setTimeout').mockImplementation(((fn: () => void) => {
+          fn();
+          return 0;
+        }) as any);
+      });
+      afterEach(() => {
+        jest.restoreAllMocks();
+      });
+
+      const apiError = (status: number) => new ApiError({ message: `gemini ${status}`, status });
+
+      it('retries once on 503 and returns the second answer', async () => {
+        mockGemini.models.generateContent
+          .mockRejectedValueOnce(apiError(503))
+          .mockResolvedValueOnce({ text: 'ok' });
+
+        const result = await gateway.complete('system', 'user');
+
+        expect(result.text).toBe('ok');
+        expect(mockGemini.models.generateContent).toHaveBeenCalledTimes(2);
+      });
+
+      it('maps a repeated 503 to ServiceUnavailableException', async () => {
+        mockGemini.models.generateContent.mockRejectedValue(apiError(503));
+
+        await expect(gateway.completeJson('system', 'user')).rejects.toThrow(
+          ServiceUnavailableException,
+        );
+        expect(mockGemini.models.generateContent).toHaveBeenCalledTimes(2);
+      });
+
+      it('maps 429 to 429 without retrying', async () => {
+        mockGemini.models.generateContent.mockRejectedValue(apiError(429));
+
+        await expect(
+          gateway.completeJsonWithAudio('system', Buffer.from('a'), 'audio/mp4'),
+        ).rejects.toMatchObject({ status: HttpStatus.TOO_MANY_REQUESTS });
+        expect(mockGemini.models.generateContent).toHaveBeenCalledTimes(1);
+      });
+
+      it('passes other errors through unchanged', async () => {
+        const error = apiError(400);
+        mockGemini.models.generateContent.mockRejectedValue(error);
+
+        await expect(gateway.complete('system', 'user')).rejects.toBe(error);
+        expect(mockGemini.models.generateContent).toHaveBeenCalledTimes(1);
+      });
+
+      it('stream() maps 429 from the initial request', async () => {
+        mockGemini.models.generateContentStream.mockRejectedValue(apiError(429));
+
+        await expect(collect(gateway.stream('system', 'user'))).rejects.toMatchObject({
+          status: HttpStatus.TOO_MANY_REQUESTS,
+        });
+      });
     });
 
     it('stream() yields non-empty chunk texts', async () => {

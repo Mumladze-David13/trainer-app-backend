@@ -1,10 +1,14 @@
 import {
   BadRequestException,
+  HttpException,
+  HttpStatus,
   Injectable,
   InternalServerErrorException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
 import {
+  ApiError,
   ContentListUnion,
   GenerateContentConfig,
   GenerateContentResponse,
@@ -30,6 +34,8 @@ const ANTHROPIC_MAX_TOKENS = 2048;
 const GEMINI_DEFAULT_MODEL = 'gemini-3.8-flash';
 // У Gemini лимит включает токены «размышлений», поэтому берём с запасом
 const GEMINI_MAX_TOKENS = 8192;
+// Gemini часто отвечает 503 «high demand» на секунды — один повтор спасает большинство запросов
+const GEMINI_RETRY_DELAY_MS = 1000;
 
 @Injectable()
 export class AiGateway {
@@ -72,7 +78,7 @@ export class AiGateway {
     const parts: Part[] = [{ inlineData: { mimeType, data: audio.toString('base64') } }];
     if (userText) parts.push({ text: userText });
 
-    const response = await this.geminiClient().models.generateContent(
+    const response = await this.geminiGenerate(
       this.geminiRequest(systemPrompt, [{ role: 'user', parts }], true),
     );
 
@@ -172,20 +178,40 @@ export class AiGateway {
     userMessage: string,
     json: boolean,
   ): Promise<AiResponse> {
-    const response = await this.geminiClient().models.generateContent(
+    const response = await this.geminiGenerate(
       this.geminiRequest(systemPrompt, userMessage, json),
     );
 
     return { text: response.text ?? '', usage: geminiUsage(response) };
   }
 
+  private async geminiGenerate(
+    request: ReturnType<AiGateway['geminiRequest']>,
+  ): Promise<GenerateContentResponse> {
+    const client = this.geminiClient();
+    try {
+      return await client.models.generateContent(request);
+    } catch (error) {
+      if (!(error instanceof ApiError && error.status === 503)) throw geminiHttpError(error);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, GEMINI_RETRY_DELAY_MS));
+    try {
+      return await client.models.generateContent(request);
+    } catch (error) {
+      throw geminiHttpError(error);
+    }
+  }
+
   private async *geminiStream(
     systemPrompt: string,
     userMessage: string,
   ): AsyncGenerator<string> {
-    const stream = await this.geminiClient().models.generateContentStream(
-      this.geminiRequest(systemPrompt, userMessage, false),
-    );
+    const stream = await this.geminiClient()
+      .models.generateContentStream(this.geminiRequest(systemPrompt, userMessage, false))
+      .catch((error) => {
+        throw geminiHttpError(error);
+      });
 
     for await (const chunk of stream) {
       if (chunk.text) yield chunk.text;
@@ -200,6 +226,23 @@ function geminiUsage(response: GenerateContentResponse): AiUsage {
     inputTokens: meta?.promptTokenCount ?? 0,
     outputTokens: (meta?.candidatesTokenCount ?? 0) + (meta?.thoughtsTokenCount ?? 0),
   };
+}
+
+// Перегрузку и лимиты Gemini отдаём клиенту понятным кодом вместо 500
+function geminiHttpError(error: unknown): unknown {
+  if (!(error instanceof ApiError)) return error;
+  if (error.status === 429) {
+    return new HttpException(
+      'Слишком много запросов к ИИ. Подождите минуту и попробуйте ещё раз.',
+      HttpStatus.TOO_MANY_REQUESTS,
+    );
+  }
+  if (error.status === 503) {
+    return new ServiceUnavailableException(
+      'ИИ-сервис сейчас перегружен. Попробуйте ещё раз через несколько секунд.',
+    );
+  }
+  return error;
 }
 
 function stripJsonFence(text: string): string {
