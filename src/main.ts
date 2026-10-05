@@ -20,6 +20,9 @@ async function bootstrap() {
       process.env.FLUTTER_URL || 'http://95.81.72.98:8081',
       'https://trainer-app-2026.web.app',
       'https://trainer-app-2026.firebaseapp.com',
+      'https://workout-assistant-8cc4d.web.app',
+      'https://workout-assistant-8cc4d.firebaseapp.com',
+      /^http:\/\/localhost:\d+$/,
     ],
     credentials: true,
   });
