@@ -48,6 +48,10 @@ describe('AiService', () => {
     findOrCreateMeal: jest.fn(),
     findOrCreateFoodItem: jest.fn(),
     getCalculations: jest.fn(),
+    // Реальная проверка доступа поверх замоканной prisma
+    assertCanManageClient: jest.fn((...args: [string, string, string?, (() => Error)?]) =>
+      NutritionService.prototype.assertCanManageClient.apply({ prisma: mockPrismaService }, args),
+    ),
   };
 
   const mockPrismaTransaction = {
@@ -1187,6 +1191,24 @@ describe('AiService', () => {
       mockPrismaService.trainerClient.findFirst.mockResolvedValue(null);
 
       await expect(service.saveMealPlan(saveMealPlanDto, TRAINER_ID)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('lets SOLO save a meal plan for themselves on a future date without trainer-client relation', async () => {
+      mockPrismaService.trainerClient.findFirst.mockResolvedValue(null);
+      const futureDto = { ...saveMealPlanDto, date: '2099-01-07' };
+
+      await service.saveMealPlan(futureDto, CLIENT_ID, 'SOLO');
+
+      expect(mockNutritionService.findOrCreateMealPlan).toHaveBeenCalledWith(
+        CLIENT_ID,
+        new Date('2099-01-07'),
+        mockPrismaTransaction,
+      );
+    });
+
+    it('throws ForbiddenException when SOLO saves a meal plan for another user', async () => {
+      await expect(service.saveMealPlan(saveMealPlanDto, TRAINER_ID, 'SOLO')).rejects.toThrow(ForbiddenException);
+      expect(mockPrismaService.$transaction).not.toHaveBeenCalled();
     });
 
     it('does NOT call AiGateway.complete', async () => {

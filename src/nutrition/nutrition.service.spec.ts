@@ -355,6 +355,20 @@ describe('NutritionService', () => {
       await expect(service.upsertProfile(dto, TRAINER_ID)).rejects.toThrow('Client not assigned to this trainer');
     });
 
+    it('lets SOLO upsert own profile without trainer-client relation', async () => {
+      mockPrismaService.nutritionProfile.upsert.mockResolvedValue(makeProfile(dto));
+
+      await service.upsertProfile(dto, CLIENT_ID, 'SOLO');
+
+      expect(mockPrismaService.trainerClient.findFirst).not.toHaveBeenCalled();
+      expect(mockPrismaService.nutritionProfile.upsert).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws ForbiddenException when SOLO upserts another user profile', async () => {
+      await expect(service.upsertProfile(dto, TRAINER_ID, 'SOLO')).rejects.toThrow(ForbiddenException);
+      expect(mockPrismaService.nutritionProfile.upsert).not.toHaveBeenCalled();
+    });
+
     it('calls prisma.nutritionProfile.upsert when trainer is assigned', async () => {
       mockPrismaService.trainerClient.findFirst.mockResolvedValue({ clientId: CLIENT_ID, trainerId: TRAINER_ID });
       mockPrismaService.nutritionProfile.upsert.mockResolvedValue(makeProfile(dto));

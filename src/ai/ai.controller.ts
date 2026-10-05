@@ -110,7 +110,7 @@ export class AiController {
   @ApiResponse({ status: 403, description: 'Клиент не назначен тренеру' })
   @ApiResponse({ status: 404, description: 'Профиль питания не найден' })
   logMeal(@Body() dto: LogMealDto, @CurrentUser() user: any) {
-    return this.aiService.logMeal(dto, user.id);
+    return this.aiService.logMeal(dto, user.id, user.role);
   }
 
   @Post('generate-meal-plan')
@@ -120,7 +120,7 @@ export class AiController {
   @ApiResponse({ status: 403, description: 'Исчерпан месячный лимит токенов тарифа' })
   @ApiResponse({ status: 404, description: 'Клиент или профиль питания не найден' })
   generateMealPlan(@Body() dto: GenerateMealPlanDto, @CurrentUser() user: any) {
-    return this.aiService.generateMealPlan(dto, user.id);
+    return this.aiService.generateMealPlan(dto, user.id, user.role);
   }
 
   @Post('save-meal-plan')
@@ -130,6 +130,6 @@ export class AiController {
   @ApiResponse({ status: 403, description: 'Клиент не назначен тренеру' })
   @ApiResponse({ status: 404, description: 'Профиль питания не найден' })
   saveMealPlan(@Body() dto: SaveMealPlanDto, @CurrentUser() user: any) {
-    return this.aiService.saveMealPlan(dto, user.id);
+    return this.aiService.saveMealPlan(dto, user.id, user.role);
   }
 }

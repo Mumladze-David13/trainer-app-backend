@@ -12,7 +12,7 @@ describe('NutritionController', () => {
   let controller: NutritionController;
   let service: NutritionService;
 
-  const mockUser = { id: 'user-1', email: 'test@test.com' };
+  const mockUser = { id: 'user-1', email: 'test@test.com', role: 'TRAINER' };
 
   const mockNutritionService = {
     upsertProfile: jest.fn(),
@@ -70,7 +70,7 @@ describe('NutritionController', () => {
 
       const result = await controller.upsertProfile(dto, mockUser as any);
 
-      expect(service.upsertProfile).toHaveBeenCalledWith(dto, mockUser.id);
+      expect(service.upsertProfile).toHaveBeenCalledWith(dto, mockUser.id, mockUser.role);
       expect(result).toEqual(expected);
     });
 
@@ -80,7 +80,7 @@ describe('NutritionController', () => {
 
       await controller.upsertProfile(dtoWithTarget, mockUser as any);
 
-      expect(service.upsertProfile).toHaveBeenCalledWith(dtoWithTarget, mockUser.id);
+      expect(service.upsertProfile).toHaveBeenCalledWith(dtoWithTarget, mockUser.id, mockUser.role);
     });
 
     it('should propagate service errors', async () => {

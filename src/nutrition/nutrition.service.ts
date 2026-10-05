@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { NutritionProfile } from '@prisma/client';
+import { NutritionProfile, Role } from '@prisma/client';
 import { CreateNutritionProfileDto } from './dto/create-nutrition-profile.dto';
 import { AddMealItemDto } from './dto/add-meal-item.dto';
 import { CreateFoodItemDto } from './dto/create-food-item.dto';
@@ -52,6 +52,26 @@ export class NutritionService {
       where: { clientId, trainerId: requesterId },
     });
     if (!trainerClient) throw new ForbiddenException('Access denied');
+  }
+
+  /**
+   * Право вести питание клиента: SOLO — сам себе тренер и управляет только своими данными
+   * (без self-relation в trainerClient, её нет до онбординга), остальным нужна связка тренер → клиент.
+   */
+  async assertCanManageClient(
+    clientId: string,
+    userId: string,
+    role?: string,
+    notAssigned: () => Error = () => new ForbiddenException('Client not assigned to this trainer'),
+  ): Promise<void> {
+    if (role === Role.SOLO) {
+      if (clientId !== userId) throw new ForbiddenException('Access denied');
+      return;
+    }
+    const trainerClient = await this.prisma.trainerClient.findFirst({
+      where: { clientId, trainerId: userId },
+    });
+    if (!trainerClient) throw notAssigned();
   }
 
   /**
@@ -163,11 +183,8 @@ export class NutritionService {
     };
   }
 
-  async upsertProfile(dto: CreateNutritionProfileDto, trainerId: string) {
-    const trainerClient = await this.prisma.trainerClient.findFirst({
-      where: { clientId: dto.clientId, trainerId },
-    });
-    if (!trainerClient) throw new ForbiddenException('Client not assigned to this trainer');
+  async upsertProfile(dto: CreateNutritionProfileDto, trainerId: string, role?: string) {
+    await this.assertCanManageClient(dto.clientId, trainerId, role);
 
     return this.prisma.nutritionProfile.upsert({
       where: { clientId: dto.clientId },

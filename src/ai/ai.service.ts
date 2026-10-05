@@ -130,7 +130,17 @@ export class AiService {
     }
   ],
   "recommendations": "общие рекомендации тренеру"
-}`;
+}
+
+Правила для веса:
+- weight — рабочий вес в кг (число). Указывай его для КАЖДОГО упражнения со штангой,
+  гантелями, гирей или в тренажёре — не оставляй null.
+- Если в истории тренировок есть это или похожее упражнение — отталкивайся от веса из истории
+  с учётом цели и прогрессии.
+- Если истории нет — оцени стартовый вес по уровню подготовки (для новичка — консервативно,
+  лёгкий вес для отработки техники). Для гантелей указывай вес одной гантели.
+- null — только для упражнений с собственным весом (подтягивания, отжимания, планка и т.п.).
+- setWeights — массив весов по подходам, если вес меняется от подхода к подходу, иначе null.`;
 
     const userMessage = `Составь программу тренировок для клиента ${clientHash}.
 
@@ -597,13 +607,8 @@ ${exerciseList}
     };
   }
 
-  async logMeal(dto: LogMealDto, trainerId: string) {
-    const trainerClient = await this.prisma.trainerClient.findFirst({
-      where: { clientId: dto.clientId, trainerId },
-    });
-    if (!trainerClient) {
-      throw new ForbiddenException('Client not assigned to this trainer');
-    }
+  async logMeal(dto: LogMealDto, trainerId: string, role?: string) {
+    await this.nutritionService.assertCanManageClient(dto.clientId, trainerId, role);
 
     const parsedDate = new Date(dto.date);
 
@@ -646,7 +651,7 @@ ${exerciseList}
     return { ok: true };
   }
 
-  async generateMealPlan(dto: GenerateMealPlanDto, trainerId: string) {
+  async generateMealPlan(dto: GenerateMealPlanDto, trainerId: string, role?: string) {
     const settings = await this.getOrCreateSettings(trainerId);
     const limit = planTokenLimit(settings.plan);
     const used = await this.getMonthlyTokensUsed(trainerId);
@@ -657,12 +662,12 @@ ${exerciseList}
       );
     }
 
-    const trainerClient = await this.prisma.trainerClient.findFirst({
-      where: { clientId: dto.clientId, trainerId },
-    });
-    if (!trainerClient) {
-      throw new NotFoundException('Client not found');
-    }
+    await this.nutritionService.assertCanManageClient(
+      dto.clientId,
+      trainerId,
+      role,
+      () => new NotFoundException('Client not found'),
+    );
 
     const calculations = await this.nutritionService.getCalculations(dto.clientId);
 
@@ -769,13 +774,8 @@ ${dto.preferences ? `Предпочтения: ${dto.preferences}` : 'Предп
     };
   }
 
-  async saveMealPlan(dto: SaveMealPlanDto, trainerId: string) {
-    const trainerClient = await this.prisma.trainerClient.findFirst({
-      where: { clientId: dto.clientId, trainerId },
-    });
-    if (!trainerClient) {
-      throw new ForbiddenException('Client not assigned to this trainer');
-    }
+  async saveMealPlan(dto: SaveMealPlanDto, trainerId: string, role?: string) {
+    await this.nutritionService.assertCanManageClient(dto.clientId, trainerId, role);
 
     const parsedDate = new Date(dto.date);
 

@@ -19,9 +19,9 @@ export class NutritionController {
   constructor(private readonly nutritionService: NutritionService) {}
 
   @Post('profile')
-  @ApiOperation({ summary: 'Создать/обновить профиль питания клиента (тренер)' })
+  @ApiOperation({ summary: 'Создать/обновить профиль питания клиента (тренер) или свой (SOLO)' })
   upsertProfile(@Body() dto: CreateNutritionProfileDto, @CurrentUser() user: any) {
-    return this.nutritionService.upsertProfile(dto, user.id);
+    return this.nutritionService.upsertProfile(dto, user.id, user.role);
   }
 
   @Get('profile/:clientId')
