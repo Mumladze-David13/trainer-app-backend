@@ -9,22 +9,25 @@ import { Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiGateway } from '../ai/ai.gateway';
 import { planTokenLimit, COST_PER_INPUT_TOKEN, COST_PER_OUTPUT_TOKEN } from '../ai/ai.service';
+import { AnonymizerService } from '../ai/anonymizer.service';
+import {
+  PROGRAM_SYSTEM_PROMPT,
+  SOLO_EQUIPMENT_FILTER,
+  describeClient,
+  historyBlock,
+  loadExerciseCatalog,
+  placeWorkoutsInSeasons,
+  resolveTrainerExerciseId,
+} from '../ai/program-planning';
 import { CreateSoloProfileDto } from './dto/create-solo-profile.dto';
-
-// Соответствие онбординг-выбора оборудования реальным значениям
-// GlobalExercise.equipment (см. prisma/seed-global-exercises.ts EQUIPMENT_MAP).
-// null = не фильтровать (полный зал — доступно всё).
-const EQUIPMENT_FILTER: Record<string, string[] | null> = {
-  gym: null,
-  home_dumbbells: ['гантели', 'собственный вес', 'эспандер'],
-  bodyweight: ['собственный вес'],
-};
+import { GenerateSoloProgramDto } from './dto/generate-solo-program.dto';
 
 @Injectable()
 export class SoloService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly gateway: AiGateway,
+    private readonly anonymizer: AnonymizerService,
   ) {}
 
   private async assertSoloUser(userId: string) {
@@ -108,7 +111,7 @@ export class SoloService {
     return result._sum.totalTokens ?? 0;
   }
 
-  public async generateInitialProgram(userId: string) {
+  public async generateInitialProgram(userId: string, dto: GenerateSoloProgramDto = {}) {
     const profile = await this.prisma.soloProfile.findUnique({ where: { userId } });
     if (!profile) throw new NotFoundException('Профиль не заполнен');
     if (!profile.agreedToTermsAt) throw new ForbiddenException('Необходимо принять условия использования');
@@ -126,60 +129,41 @@ export class SoloService {
       );
     }
 
-    const equipmentFilter = EQUIPMENT_FILTER[profile.equipment] ?? null;
-    const exercises = await this.prisma.globalExercise.findMany({
-      where: equipmentFilter ? { equipment: { in: equipmentFilter } } : {},
-      select: { id: true, name: true, nameRus: true, equipment: true },
-      take: 150,
+    const catalog = await loadExerciseCatalog(this.prisma, {
+      equipment: SOLO_EQUIPMENT_FILTER[profile.equipment] ?? SOLO_EQUIPMENT_FILTER.gym,
     });
-    if (exercises.length === 0) {
+    if (catalog.entries.size === 0) {
       throw new BadRequestException('Не удалось подобрать упражнения под выбранное оборудование');
     }
-    const exerciseById = new Map(exercises.map((e) => [e.id, e]));
 
-    const exerciseList = exercises
-      .map((e) => `- ${e.nameRus ?? e.name} (id: ${e.id})`)
-      .join('\n');
-
-    const systemPrompt = `Ты опытный персональный тренер составляющий программы тренировок.
-Ты должен использовать ТОЛЬКО упражнения из предоставленного списка — не придумывай новые и не меняй id.
-Отвечай строго в JSON формате без лишнего текста, markdown или пояснений.
-Формат ответа:
-{
-  "workouts": [
-    {
-      "dayNumber": 1,
-      "notes": "описание занятия",
-      "exercises": [
-        {
-          "globalExerciseId": "id из списка",
-          "exerciseName": "название",
-          "sets": 3,
-          "reps": 10,
-          "weight": null,
-          "order": 0
-        }
-      ]
-    }
-  ],
-  "recommendations": "общие рекомендации"
-}`;
+    const relationId = await this.getSelfRelationId(userId);
+    const history = await this.prisma.workout.findMany({
+      where: { season: { trainerClientId: relationId }, isCompleted: true },
+      orderBy: { date: 'desc' },
+      take: 10,
+      include: { workoutExercises: { include: { exercise: true } } },
+    });
+    const clientInfo = await describeClient(this.prisma, userId);
+    const workoutsCount = dto.workoutsCount ?? profile.daysPerWeek;
 
     const userMessage = `Составь программу тренировок для самостоятельных занятий.
 
 Параметры:
+- Данные: ${clientInfo}
 - Цель: ${profile.goal}
 - Уровень подготовки: ${profile.level}
 - Занятий в неделю: ${profile.daysPerWeek}
 - Оборудование: ${profile.equipment}
-- Дополнительные пожелания: ${profile.notes ?? 'нет'}
+- Ограничения и пожелания: ${profile.notes ?? 'нет'}
 
-Доступные упражнения (используй ТОЛЬКО эти):
-${exerciseList}
+${historyBlock(this.anonymizer.anonymizeWorkoutHistory(history))}
 
-Создай программу на ${profile.daysPerWeek} занятий.`;
+Доступные упражнения (используй ТОЛЬКО эти, указывай номер):
+${catalog.promptList}
 
-    const { text, usage } = await this.gateway.completeJson(systemPrompt, userMessage);
+Создай ровно ${workoutsCount} ${workoutsCount === 1 ? 'тренировку' : 'тренировки'}.`;
+
+    const { text, usage } = await this.gateway.completeJson(PROGRAM_SYSTEM_PROMPT, userMessage);
 
     const totalTokens = usage.inputTokens + usage.outputTokens;
     const costUsd =
@@ -209,94 +193,83 @@ ${exerciseList}
     // Материализуем упражнения из глобального справочника как TrainerExercise,
     // принадлежащие самому пользователю — так работает прогресс/история веса
     // и обычный сериализатор WorkoutExercise.exercise без изменений схемы.
-    const trainerExerciseIdByGlobalId = new Map<string, string>();
-    const resolveTrainerExerciseId = async (globalExerciseId: string) => {
-      if (trainerExerciseIdByGlobalId.has(globalExerciseId)) {
-        return trainerExerciseIdByGlobalId.get(globalExerciseId)!;
-      }
-      const globalExercise = exerciseById.get(globalExerciseId);
-      if (!globalExercise) return null;
-
-      const name = globalExercise.nameRus ?? globalExercise.name;
-      const existing = await this.prisma.trainerExercise.findUnique({
-        where: { name_trainerId: { name, trainerId: userId } },
-      });
-      const trainerExercise =
-        existing ??
-        (await this.prisma.trainerExercise.create({
-          data: {
-            name,
-            trainerId: userId,
-            equipment: globalExercise.equipment,
-            globalExerciseId: globalExercise.id,
-          },
-        }));
-
-      trainerExerciseIdByGlobalId.set(globalExerciseId, trainerExercise.id);
-      return trainerExercise.id;
-    };
-
-    const relationId = await this.getSelfRelationId(userId);
-    const seasonCount = await this.prisma.season.count({ where: { trainerClientId: relationId } });
-
-    const season = await this.prisma.season.create({
-      data: {
-        trainerClientId: relationId,
-        name: `AI Программа ${seasonCount + 1}`,
-        startDate: new Date(),
-        isActive: true,
-      },
-    });
-
-    const startDate = new Date();
-    const gapDays = Math.max(1, Math.floor(7 / profile.daysPerWeek));
-    let workoutsCreated = 0;
-
-    for (let i = 0; i < parsed.workouts.length; i++) {
-      const w = parsed.workouts[i];
+    const resolved: {
+      notes: string | null;
+      exercises: { exerciseId: string; sets: number; reps: number; weight: number | null; order: number }[];
+    }[] = [];
+    for (const w of parsed.workouts.slice(0, workoutsCount)) {
       if (!Array.isArray(w.exercises)) continue;
-
-      const exerciseCreates: { exerciseId: string; sets: number; reps: number; weight: number | null; order: number }[] = [];
+      const exercises: (typeof resolved)[number]['exercises'] = [];
       for (const e of w.exercises) {
-        const trainerExerciseId = await resolveTrainerExerciseId(e.globalExerciseId);
-        if (!trainerExerciseId) continue;
-        exerciseCreates.push({
-          exerciseId: trainerExerciseId,
+        const entry = catalog.entries.get(Number(e.exercise));
+        if (!entry) continue;
+        exercises.push({
+          exerciseId: await resolveTrainerExerciseId(this.prisma, entry, userId),
           sets: e.sets ?? 3,
           reps: e.reps ?? 10,
           weight: e.weight ?? null,
-          order: e.order ?? exerciseCreates.length,
+          order: e.order ?? exercises.length,
         });
       }
-      if (exerciseCreates.length === 0) continue;
-
-      const workoutDate = new Date(startDate);
-      workoutDate.setDate(startDate.getDate() + i * gapDays);
-
-      await this.prisma.workout.create({
-        data: {
-          seasonId: season.id,
-          date: workoutDate,
-          notes: w.notes ?? null,
-          isCompleted: false,
-          workoutExercises: { create: exerciseCreates },
-        },
-      });
-      workoutsCreated++;
+      if (exercises.length) resolved.push({ notes: w.notes ?? null, exercises });
     }
 
-    if (workoutsCreated === 0) {
+    if (resolved.length === 0) {
       throw new BadRequestException('AI не вернул ни одного распознанного упражнения. Попробуйте ещё раз.');
     }
 
-    await this.prisma.soloProfile.update({
-      where: { userId },
-      data: { currentSeasonId: season.id },
+    // Даты: начиная с сегодня, но не раньше следующего слота после
+    // последней запланированной тренировки текущего сезона.
+    const gapDays = Math.max(1, Math.floor(7 / profile.daysPerWeek));
+    const startDate = new Date();
+    if (profile.currentSeasonId) {
+      const last = await this.prisma.workout.findFirst({
+        where: { seasonId: profile.currentSeasonId },
+        orderBy: { date: 'desc' },
+      });
+      if (last) {
+        const next = new Date(last.date);
+        next.setDate(next.getDate() + gapDays);
+        if (next > startDate) startDate.setTime(next.getTime());
+      }
+    }
+    const dated = resolved.map((w, i) => {
+      const date = new Date(startDate);
+      date.setDate(startDate.getDate() + i * gapDays);
+      return { ...w, date };
     });
+
+    const { placed, newSeason } = await placeWorkoutsInSeasons(
+      this.prisma,
+      { trainerClientId: relationId, trainerId: userId, preferredSeasonId: profile.currentSeasonId },
+      dated,
+    );
+
+    for (const { workout, seasonId } of placed) {
+      await this.prisma.workout.create({
+        data: {
+          seasonId,
+          date: workout.date,
+          notes: workout.notes,
+          isCompleted: false,
+          workoutExercises: { create: workout.exercises },
+        },
+      });
+    }
+
+    const seasonId = newSeason?.id ?? placed[0].seasonId;
+    if (seasonId !== profile.currentSeasonId) {
+      await this.prisma.soloProfile.update({
+        where: { userId },
+        data: { currentSeasonId: seasonId },
+      });
+    }
+    const season = await this.prisma.season.findUnique({ where: { id: seasonId } });
 
     return {
       season,
-      workoutsCreated,
+      newSeason,
+      workoutsCreated: placed.length,
       recommendations: parsed.recommendations ?? null,
       usage: {
         inputTokens: usage.inputTokens,

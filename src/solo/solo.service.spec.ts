@@ -4,6 +4,7 @@ import { Role } from '@prisma/client';
 import { SoloService } from './solo.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiGateway } from '../ai/ai.gateway';
+import { AnonymizerService } from '../ai/anonymizer.service';
 
 describe('SoloService', () => {
   beforeAll(() => {
@@ -20,12 +21,14 @@ describe('SoloService', () => {
     soloProfile: { upsert: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
     trainerClient: { upsert: jest.fn(), findUnique: jest.fn() },
     clientSettings: { upsert: jest.fn() },
-    trainerSettings: { upsert: jest.fn() },
+    trainerSettings: { upsert: jest.fn(), findUnique: jest.fn() },
     aiUsageLog: { aggregate: jest.fn(), create: jest.fn() },
     globalExercise: { findMany: jest.fn() },
     trainerExercise: { findUnique: jest.fn(), create: jest.fn() },
-    season: { count: jest.fn(), create: jest.fn(), findMany: jest.fn(), findUnique: jest.fn() },
-    workout: { create: jest.fn() },
+    season: { count: jest.fn(), create: jest.fn(), findMany: jest.fn(), findUnique: jest.fn(), findFirst: jest.fn() },
+    workout: { create: jest.fn(), count: jest.fn(), findMany: jest.fn(), findFirst: jest.fn() },
+    nutritionProfile: { findUnique: jest.fn() },
+    weightLog: { findFirst: jest.fn() },
   };
 
   const mockGateway = { completeJson: jest.fn() };
@@ -36,6 +39,7 @@ describe('SoloService', () => {
         SoloService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: AiGateway, useValue: mockGateway },
+        AnonymizerService,
       ],
     }).compile();
 
@@ -105,6 +109,51 @@ describe('SoloService', () => {
   });
 
   describe('generateInitialProgram', () => {
+    const profile = {
+      userId: 'u1',
+      agreedToTermsAt: new Date(),
+      equipment: 'bodyweight',
+      goal: 'maintain',
+      level: 'beginner',
+      daysPerWeek: 2,
+      notes: null,
+      currentSeasonId: null,
+    };
+    const day = (n: number) => ({
+      dayNumber: n,
+      notes: `День ${n}`,
+      exercises: [{ exercise: 1, sets: 3, reps: 10, weight: null, order: 0 }],
+    });
+    const aiReply = (workouts: unknown[]) => ({
+      text: JSON.stringify({ workouts, recommendations: 'Пей воду' }),
+      usage: { inputTokens: 100, outputTokens: 50 },
+    });
+
+    beforeEach(() => {
+      mockPrisma.soloProfile.findUnique.mockResolvedValue(profile);
+      mockPrisma.trainerSettings.upsert.mockResolvedValue({ trainerId: 'u1', plan: 'FREE' });
+      mockPrisma.trainerSettings.findUnique.mockResolvedValue({ sessionsPerSeason: 30 });
+      mockPrisma.aiUsageLog.aggregate.mockResolvedValue({ _sum: { totalTokens: 0 } });
+      mockPrisma.globalExercise.findMany.mockResolvedValue([
+        { id: 'g1', name: 'Push Up', nameRus: 'Отжимания', equipment: 'собственный вес', primaryMuscles: ['chest'] },
+      ]);
+      mockPrisma.trainerClient.findUnique.mockResolvedValue({ id: 'rel1' });
+      mockPrisma.workout.findMany.mockResolvedValue([]);
+      mockPrisma.workout.findFirst.mockResolvedValue(null);
+      mockPrisma.workout.count.mockResolvedValue(0);
+      mockPrisma.workout.create.mockResolvedValue({ id: 'w1' });
+      mockPrisma.nutritionProfile.findUnique.mockResolvedValue(null);
+      mockPrisma.weightLog.findFirst.mockResolvedValue(null);
+      mockPrisma.trainerExercise.findUnique.mockResolvedValue(null);
+      mockPrisma.trainerExercise.create.mockResolvedValue({ id: 'te1' });
+      mockPrisma.season.findFirst.mockResolvedValue(null);
+      mockPrisma.season.count.mockResolvedValue(0);
+      mockPrisma.season.create.mockResolvedValue({ id: 'season1', name: 'Сезон 1' });
+      mockPrisma.season.findUnique.mockImplementation(({ where }) => Promise.resolve({ id: where.id }));
+      mockPrisma.soloProfile.update.mockResolvedValue({});
+      mockGateway.completeJson.mockResolvedValue(aiReply([day(1), day(2)]));
+    });
+
     it('throws NotFoundException when profile is missing', async () => {
       mockPrisma.soloProfile.findUnique.mockResolvedValue(null);
 
@@ -112,67 +161,28 @@ describe('SoloService', () => {
     });
 
     it('throws ForbiddenException when terms not agreed', async () => {
-      mockPrisma.soloProfile.findUnique.mockResolvedValue({
-        userId: 'u1',
-        agreedToTermsAt: null,
-      });
+      mockPrisma.soloProfile.findUnique.mockResolvedValue({ ...profile, agreedToTermsAt: null });
 
       await expect(service.generateInitialProgram('u1')).rejects.toThrow(ForbiddenException);
     });
 
     it('throws ForbiddenException when monthly token limit is exhausted', async () => {
-      mockPrisma.soloProfile.findUnique.mockResolvedValue({
-        userId: 'u1',
-        agreedToTermsAt: new Date(),
-        equipment: 'gym',
-        goal: 'maintain',
-        level: 'beginner',
-        daysPerWeek: 3,
-        notes: null,
-      });
-      mockPrisma.trainerSettings.upsert.mockResolvedValue({ trainerId: 'u1', plan: 'FREE' });
       mockPrisma.aiUsageLog.aggregate.mockResolvedValue({ _sum: { totalTokens: 999_999_999 } });
 
       await expect(service.generateInitialProgram('u1')).rejects.toThrow(ForbiddenException);
       expect(mockGateway.completeJson).not.toHaveBeenCalled();
     });
 
-    it('creates a season with materialized TrainerExercise rows from the AI response', async () => {
-      mockPrisma.soloProfile.findUnique.mockResolvedValue({
-        userId: 'u1',
-        agreedToTermsAt: new Date(),
-        equipment: 'bodyweight',
-        goal: 'maintain',
-        level: 'beginner',
-        daysPerWeek: 2,
-        notes: null,
-      });
-      mockPrisma.trainerSettings.upsert.mockResolvedValue({ trainerId: 'u1', plan: 'FREE' });
-      mockPrisma.aiUsageLog.aggregate.mockResolvedValue({ _sum: { totalTokens: 0 } });
-      mockPrisma.globalExercise.findMany.mockResolvedValue([
-        { id: 'g1', name: 'Push Up', nameRus: 'Отжимания', equipment: 'собственный вес' },
-      ]);
-      mockGateway.completeJson.mockResolvedValue({
-        text: JSON.stringify({
-          workouts: [
-            {
-              dayNumber: 1,
-              notes: 'День 1',
-              exercises: [{ globalExerciseId: 'g1', sets: 3, reps: 10, weight: null, order: 0 }],
-            },
-          ],
-          recommendations: 'Пей воду',
-        }),
-        usage: { inputTokens: 100, outputTokens: 50 },
-      });
-      mockPrisma.trainerExercise.findUnique.mockResolvedValue(null);
-      mockPrisma.trainerExercise.create.mockResolvedValue({ id: 'te1' });
-      mockPrisma.trainerClient.findUnique.mockResolvedValue({ id: 'rel1' });
-      mockPrisma.season.count.mockResolvedValue(0);
-      mockPrisma.season.create.mockResolvedValue({ id: 'season1', name: 'AI Программа 1' });
-      mockPrisma.workout.create.mockResolvedValue({ id: 'w1' });
-      mockPrisma.soloProfile.update.mockResolvedValue({});
+    it('loads all strength exercises for the chosen equipment without a random cap', async () => {
+      await service.generateInitialProgram('u1');
 
+      const args = mockPrisma.globalExercise.findMany.mock.calls[0][0];
+      expect(args.where).toEqual({ category: 'силовые', equipment: { in: ['собственный вес'] } });
+      expect(args.take).toBeUndefined();
+      expect(args.orderBy).toEqual({ name: 'asc' });
+    });
+
+    it('creates a new season with materialized TrainerExercise rows when there is no active season', async () => {
       const result = await service.generateInitialProgram('u1');
 
       expect(mockPrisma.trainerExercise.create).toHaveBeenCalledWith({
@@ -183,31 +193,84 @@ describe('SoloService', () => {
           globalExerciseId: 'g1',
         },
       });
-      expect(mockPrisma.workout.create).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.season.create).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.workout.create).toHaveBeenCalledTimes(2);
       expect(mockPrisma.soloProfile.update).toHaveBeenCalledWith({
         where: { userId: 'u1' },
         data: { currentSeasonId: 'season1' },
       });
-      expect(result.workoutsCreated).toBe(1);
+      expect(result.workoutsCreated).toBe(2);
       expect(result.recommendations).toBe('Пей воду');
     });
 
-    it('throws BadRequestException when AI returns unparseable JSON', async () => {
-      mockPrisma.soloProfile.findUnique.mockResolvedValue({
-        userId: 'u1',
-        agreedToTermsAt: new Date(),
-        equipment: 'gym',
-        goal: 'maintain',
-        level: 'beginner',
-        daysPerWeek: 3,
-        notes: null,
+    it('adds workouts to the current season after its last planned workout', async () => {
+      mockPrisma.soloProfile.findUnique.mockResolvedValue({ ...profile, currentSeasonId: 'cur' });
+      mockPrisma.season.findFirst.mockResolvedValue({ id: 'cur', trainerClientId: 'rel1', endDate: null });
+      mockPrisma.workout.count.mockResolvedValue(4);
+      const lastPlanned = new Date();
+      lastPlanned.setDate(lastPlanned.getDate() + 10);
+      mockPrisma.workout.findFirst.mockResolvedValue({ date: lastPlanned });
+
+      const result = await service.generateInitialProgram('u1');
+
+      expect(mockPrisma.season.create).not.toHaveBeenCalled();
+      const created = mockPrisma.workout.create.mock.calls.map(([a]) => a.data);
+      expect(created.every((d) => d.seasonId === 'cur')).toBe(true);
+      expect(created[0].date.getTime()).toBeGreaterThan(lastPlanned.getTime());
+      expect(mockPrisma.soloProfile.update).not.toHaveBeenCalled();
+      expect(result.season).toEqual({ id: 'cur' });
+      expect(result.newSeason).toBeNull();
+    });
+
+    it('splits the program between the full current season and a new one', async () => {
+      mockPrisma.soloProfile.findUnique.mockResolvedValue({ ...profile, currentSeasonId: 'cur' });
+      mockPrisma.season.findFirst.mockResolvedValue({ id: 'cur', trainerClientId: 'rel1', endDate: null });
+      mockPrisma.workout.count.mockResolvedValue(29);
+      mockPrisma.season.count.mockResolvedValue(1);
+      mockPrisma.season.create.mockResolvedValue({ id: 'new', name: 'Сезон 2' });
+
+      const result = await service.generateInitialProgram('u1');
+
+      const seasons = mockPrisma.workout.create.mock.calls.map(([a]) => a.data.seasonId);
+      expect(seasons).toEqual(['cur', 'new']);
+      expect(mockPrisma.season.create.mock.calls[0][0].data.name).toBe('Сезон 2');
+      expect(mockPrisma.soloProfile.update).toHaveBeenCalledWith({
+        where: { userId: 'u1' },
+        data: { currentSeasonId: 'new' },
       });
-      mockPrisma.trainerSettings.upsert.mockResolvedValue({ trainerId: 'u1', plan: 'FREE' });
-      mockPrisma.aiUsageLog.aggregate.mockResolvedValue({ _sum: { totalTokens: 0 } });
-      mockPrisma.globalExercise.findMany.mockResolvedValue([{ id: 'g1', name: 'Push Up', equipment: null }]);
+      expect(result.newSeason).toEqual({ id: 'new', name: 'Сезон 2' });
+    });
+
+    it('generates the requested number of workouts', async () => {
+      mockGateway.completeJson.mockResolvedValue(aiReply([day(1), day(2), day(3)]));
+
+      const result = await service.generateInitialProgram('u1', { workoutsCount: 1 });
+
+      const [, userMessage] = mockGateway.completeJson.mock.calls[0];
+      expect(userMessage).toContain('Создай ровно 1 тренировку');
+      expect(result.workoutsCreated).toBe(1);
+    });
+
+    it('tells the AI there is no history for a new user', async () => {
+      await service.generateInitialProgram('u1');
+
+      const [, userMessage] = mockGateway.completeJson.mock.calls[0];
+      expect(userMessage).toContain('это первая программа');
+      expect(userMessage).toContain('#1 Отжимания [грудь]');
+    });
+
+    it('throws BadRequestException when AI returns unparseable JSON', async () => {
       mockGateway.completeJson.mockResolvedValue({ text: 'not json', usage: { inputTokens: 1, outputTokens: 1 } });
 
       await expect(service.generateInitialProgram('u1')).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws BadRequestException and creates nothing when no exercise is recognized', async () => {
+      mockGateway.completeJson.mockResolvedValue(aiReply([{ exercises: [{ exercise: 77 }] }]));
+
+      await expect(service.generateInitialProgram('u1')).rejects.toThrow(BadRequestException);
+      expect(mockPrisma.season.create).not.toHaveBeenCalled();
+      expect(mockPrisma.workout.create).not.toHaveBeenCalled();
     });
   });
 

@@ -2,7 +2,9 @@ import {
   IsString,
   IsNotEmpty,
   IsNumber,
+  IsInt,
   IsOptional,
+  ValidateIf,
   IsArray,
   Min,
   Max,
@@ -38,6 +40,18 @@ export class GenerateProgramDto {
   @Min(1)
   @Max(7)
   daysPerWeek: number;
+
+  @ApiPropertyOptional({
+    example: 1,
+    minimum: 1,
+    maximum: 7,
+    description: 'Сколько тренировок сгенерировать (по умолчанию = daysPerWeek)',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(7)
+  workoutsCount?: number;
 
   @ApiProperty({
     example: 'тренажёрный зал',
@@ -118,10 +132,23 @@ class SaveWorkoutDto {
 }
 
 export class SaveGeneratedProgramDto {
-  @ApiProperty({ example: 'uuid-сезона' })
+  @ApiPropertyOptional({
+    example: 'uuid-клиента',
+    description: 'Клиент; сезон подбирается автоматически (текущий активный или новый)',
+  })
+  @ValidateIf((o) => !o.seasonId)
   @IsString()
   @IsNotEmpty()
-  seasonId: string;
+  clientId?: string;
+
+  @ApiPropertyOptional({
+    example: 'uuid-сезона',
+    description: 'Явный сезон; если в нём не хватает места — остаток уходит в новый сезон',
+  })
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  seasonId?: string;
 
   @ApiProperty({ type: [SaveWorkoutDto] })
   @IsArray()

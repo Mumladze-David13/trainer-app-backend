@@ -17,6 +17,15 @@ import {
 } from './dto/meal-ai.dto';
 import { ParseWorkoutDto } from './dto/workout-ai.dto';
 import { NutritionService } from '../nutrition/nutrition.service';
+import {
+  PROGRAM_SYSTEM_PROMPT,
+  describeClient,
+  equipmentFilterFromText,
+  historyBlock,
+  loadExerciseCatalog,
+  placeWorkoutsInSeasons,
+  resolveTrainerExerciseId,
+} from './program-planning';
 
 export const PLAN_TOKEN_LIMITS: Record<SubscriptionPlan, number> = {
   FREE: 50_000,
@@ -75,11 +84,6 @@ export class AiService {
       );
     }
 
-    const exercises = await this.prisma.trainerExercise.findMany({
-      select: { id: true, name: true },
-      orderBy: { name: 'asc' },
-    });
-
     const trainerClient = await this.prisma.trainerClient.findFirst({
       where: { trainerId, clientId: dto.clientId },
       include: {
@@ -90,6 +94,7 @@ export class AiService {
           include: {
             workouts: {
               where: { isCompleted: true },
+              orderBy: { date: 'desc' },
               take: 10,
               include: { workoutExercises: { include: { exercise: true } } },
             },
@@ -100,66 +105,38 @@ export class AiService {
 
     if (!trainerClient) throw new NotFoundException('Клиент не найден');
 
+    const catalog = await loadExerciseCatalog(this.prisma, {
+      equipment: equipmentFilterFromText(dto.equipment),
+      trainerId,
+    });
+    if (catalog.entries.size === 0) {
+      throw new BadRequestException('Не удалось подобрать упражнения под выбранное оборудование');
+    }
+
     const { clientHash } = this.anonymizer.anonymizeClient(trainerClient.client);
     const history = trainerClient.seasons?.flatMap((s) => s.workouts) ?? [];
     const anonymizedHistory = this.anonymizer.anonymizeWorkoutHistory(history);
-    const exerciseList = exercises.map((e) => `- ${e.name} (id: ${e.id})`).join('\n');
-
-    const systemPrompt = `Ты опытный персональный тренер составляющий программы тренировок.
-Ты должен использовать ТОЛЬКО упражнения из предоставленного списка — не придумывай новые.
-Отвечай строго в JSON формате без лишнего текста, markdown или пояснений.
-Формат ответа:
-{
-  "workouts": [
-    {
-      "dayNumber": 1,
-      "notes": "описание занятия",
-      "exercises": [
-        {
-          "exerciseId": "id из списка",
-          "exerciseName": "название",
-          "sets": 3,
-          "reps": 10,
-          "weight": 50,
-          "setWeights": null,
-          "supersetGroup": null,
-          "supersetOrder": null,
-          "order": 0
-        }
-      ]
-    }
-  ],
-  "recommendations": "общие рекомендации тренеру"
-}
-
-Правила для веса:
-- weight — рабочий вес в кг (число). Указывай его для КАЖДОГО упражнения со штангой,
-  гантелями, гирей или в тренажёре — не оставляй null.
-- Если в истории тренировок есть это или похожее упражнение — отталкивайся от веса из истории
-  с учётом цели и прогрессии.
-- Если истории нет — оцени стартовый вес по уровню подготовки (для новичка — консервативно,
-  лёгкий вес для отработки техники). Для гантелей указывай вес одной гантели.
-- null — только для упражнений с собственным весом (подтягивания, отжимания, планка и т.п.).
-- setWeights — массив весов по подходам, если вес меняется от подхода к подходу, иначе null.`;
+    const clientInfo = await describeClient(this.prisma, dto.clientId);
+    const workoutsCount = dto.workoutsCount ?? dto.daysPerWeek;
 
     const userMessage = `Составь программу тренировок для клиента ${clientHash}.
 
 Параметры:
+- Данные клиента: ${clientInfo}
 - Цель: ${dto.goal}
 - Уровень подготовки: ${dto.level}
 - Занятий в неделю: ${dto.daysPerWeek}
 - Доступное оборудование: ${dto.equipment}
-- Дополнительные пожелания: ${dto.notes ?? 'нет'}
+- Ограничения и пожелания: ${dto.notes ?? 'нет'}
 
-История тренировок (последние занятия):
-${JSON.stringify(anonymizedHistory, null, 2)}
+${historyBlock(anonymizedHistory)}
 
-Доступные упражнения (используй ТОЛЬКО эти):
-${exerciseList}
+Доступные упражнения (используй ТОЛЬКО эти, указывай номер):
+${catalog.promptList}
 
-Создай программу на ${dto.daysPerWeek} занятий.`;
+Создай ровно ${workoutsCount} ${workoutsCount === 1 ? 'тренировку' : 'тренировки'}.`;
 
-    const { text, usage } = await this.gateway.completeJson(systemPrompt, userMessage);
+    const { text, usage } = await this.gateway.completeJson(PROGRAM_SYSTEM_PROMPT, userMessage);
 
     const totalTokens = usage.inputTokens + usage.outputTokens;
     const costUsd =
@@ -185,11 +162,43 @@ ${exerciseList}
         'AI вернул некорректный формат. Попробуйте ещё раз.',
       );
     }
+    if (!Array.isArray(parsed.workouts)) {
+      throw new BadRequestException('AI вернул некорректный формат. Попробуйте ещё раз.');
+    }
+
+    // Номера из каталога → TrainerExercise тренера (упражнения из общего
+    // справочника добавляются тренеру), неизвестные номера отбрасываются.
+    const workouts = [];
+    for (const w of parsed.workouts.slice(0, workoutsCount)) {
+      if (!Array.isArray(w.exercises)) continue;
+      const exercises = [];
+      for (const e of w.exercises) {
+        const entry = catalog.entries.get(Number(e.exercise));
+        if (!entry) continue;
+        exercises.push({
+          exerciseId: await resolveTrainerExerciseId(this.prisma, entry, trainerId),
+          exerciseName: entry.name,
+          sets: e.sets,
+          reps: e.reps,
+          weight: e.weight ?? null,
+          setWeights: e.setWeights ?? null,
+          supersetGroup: e.supersetGroup ?? null,
+          supersetOrder: e.supersetOrder ?? null,
+          order: e.order ?? exercises.length,
+        });
+      }
+      if (exercises.length === 0) continue;
+      workouts.push({ dayNumber: w.dayNumber ?? workouts.length + 1, notes: w.notes ?? null, exercises });
+    }
+
+    if (workouts.length === 0) {
+      throw new BadRequestException('AI не вернул ни одного распознанного упражнения. Попробуйте ещё раз.');
+    }
 
     return {
-      workouts: parsed.workouts,
+      workouts,
       recommendations: parsed.recommendations,
-      totalWorkouts: parsed.workouts.length,
+      totalWorkouts: workouts.length,
       usage: {
         inputTokens: usage.inputTokens,
         outputTokens: usage.outputTokens,
@@ -203,21 +212,44 @@ ${exerciseList}
   }
 
   async saveGeneratedProgram(dto: SaveGeneratedProgramDto, trainerId: string) {
-    const season = await this.prisma.season.findFirst({
-      where: { id: dto.seasonId, trainerClient: { trainerId } },
-    });
-    if (!season) throw new NotFoundException('Сезон не найден');
+    let trainerClientId: string;
+    if (dto.seasonId) {
+      const season = await this.prisma.season.findFirst({
+        where: { id: dto.seasonId, trainerClient: { trainerId } },
+      });
+      if (!season) throw new NotFoundException('Сезон не найден');
+      trainerClientId = season.trainerClientId;
+    } else {
+      const relation = await this.prisma.trainerClient.findFirst({
+        where: { trainerId, clientId: dto.clientId },
+      });
+      if (!relation) throw new NotFoundException('Клиент не найден');
+      trainerClientId = relation.id;
+    }
 
-    const created = [];
-    for (const workout of dto.workouts) {
-      const w = await this.prisma.workout.create({
+    const exerciseIds = [...new Set(dto.workouts.flatMap((w) => w.exercises.map((e) => e.exerciseId)))];
+    const ownedCount = await this.prisma.trainerExercise.count({
+      where: { id: { in: exerciseIds }, trainerId },
+    });
+    if (ownedCount !== exerciseIds.length) {
+      throw new BadRequestException('Программа содержит упражнения не из вашего справочника');
+    }
+
+    const { placed, newSeason } = await placeWorkoutsInSeasons(
+      this.prisma,
+      { trainerClientId, trainerId, preferredSeasonId: dto.seasonId },
+      dto.workouts.map((w) => ({ ...w, date: new Date(w.date) })),
+    );
+
+    for (const { workout, seasonId } of placed) {
+      await this.prisma.workout.create({
         data: {
-          seasonId: dto.seasonId,
-          date: new Date(workout.date),
+          seasonId,
+          date: workout.date,
           notes: workout.notes,
           isCompleted: false,
           workoutExercises: {
-            create: workout.exercises.map((e: any) => ({
+            create: workout.exercises.map((e) => ({
               exerciseId: e.exerciseId,
               sets: e.sets,
               reps: e.reps,
@@ -230,10 +262,10 @@ ${exerciseList}
           },
         },
       });
-      created.push(w);
     }
 
-    return { created: created.length, seasonId: dto.seasonId };
+    const seasonIds = [...new Set(placed.map((p) => p.seasonId))];
+    return { created: placed.length, seasonId: seasonIds[0], seasonIds, newSeason };
   }
 
   async getUsage(trainerId: string) {
@@ -670,9 +702,10 @@ ${exerciseList}
     );
 
     const calculations = await this.nutritionService.getCalculations(dto.clientId);
+    const recentDishes = await this.getRecentDishes(dto.clientId);
 
     const systemPrompt = `Ты опытный диетолог, составляющий меню на день под целевые КБЖУ клиента.
-Ты должен использовать реалистичные российские блюда (гречка, курица, творог, борщ, овсянка и т.п.).
+Используй реалистичные блюда российской кухни и продукты из обычного супермаркета.
 
 Отвечай строго в JSON формате без лишнего текста, markdown или пояснений.
 Формат ответа:
@@ -699,7 +732,9 @@ ${exerciseList}
 - Создай meals для breakfast, lunch, dinner, и при необходимости snack.
 - Сумма калорий по всем items должна быть в пределах ±5-10% от целевого значения.
 - Сумма белков/углеводов/жиров должна быть близка к целевым макросам.
-- Используй только реалистичные российские блюда.
+- Меню должно быть разнообразным: если указаны блюда из предыдущих дней — не повторяй их,
+  меняй источники белка (птица, говядина, свинина, рыба, яйца, молочные продукты, бобовые)
+  и гарниры (крупы, макароны, картофель, овощи) от дня к дню.
 - Учитывай предпочтения/ограничения клиента.
 - Все числа должны быть положительными.`;
 
@@ -713,7 +748,9 @@ ${exerciseList}
 
 ${dto.preferences ? `Предпочтения: ${dto.preferences}` : 'Предпочтений нет.'}
 
-Создай сбалансированное меню из российских блюд.`;
+${recentDishes.length ? `Блюда из предыдущих дней (не повторяй их): ${recentDishes.join(', ')}` : 'Предыдущих меню нет.'}
+
+Создай сбалансированное меню.`;
 
     const { text, usage } = await this.gateway.completeJson(systemPrompt, userMessage);
 
@@ -772,6 +809,18 @@ ${dto.preferences ? `Предпочтения: ${dto.preferences}` : 'Предп
         costUsd: parseFloat(costUsd.toFixed(6)),
       },
     };
+  }
+
+  // Названия блюд из последних 3 сохранённых дней — чтобы меню не повторялось
+  private async getRecentDishes(clientId: string): Promise<string[]> {
+    const plans = await this.prisma.mealPlan.findMany({
+      where: { clientId },
+      orderBy: { date: 'desc' },
+      take: 3,
+      include: { meals: { include: { items: { include: { foodItem: { select: { name: true } } } } } } },
+    });
+    const names = plans.flatMap((p) => p.meals.flatMap((m) => m.items.map((i) => i.foodItem.name)));
+    return [...new Set(names)];
   }
 
   async saveMealPlan(dto: SaveMealPlanDto, trainerId: string, role?: string) {

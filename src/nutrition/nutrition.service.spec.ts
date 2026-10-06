@@ -28,6 +28,7 @@ describe('NutritionService', () => {
       findUnique: jest.fn(),
       create: jest.fn(),
       delete: jest.fn(),
+      groupBy: jest.fn(),
     },
     foodItem: {
       findUnique: jest.fn(),
@@ -806,12 +807,32 @@ describe('NutritionService', () => {
     });
 
     it('limits results to 20 items', async () => {
-      mockPrismaService.foodItem.findMany.mockResolvedValue([]);
+      const foods = Array.from({ length: 25 }, (_, i) => makeFoodItem({ id: `food-${i}`, name: `Еда ${i}` }));
+      mockPrismaService.foodItem.findMany.mockResolvedValue(foods);
 
-      await service.searchFood('еда');
+      const result = await service.searchFood('еда');
 
-      const call = mockPrismaService.foodItem.findMany.mock.calls[0][0];
-      expect(call.take).toBe(20);
+      expect(result).toHaveLength(20);
+    });
+
+    it('puts the foods the client eats most often first when clientId is passed', async () => {
+      const foods = [
+        makeFoodItem({ id: 'food-a', name: 'Авокадо' }),
+        makeFoodItem({ id: 'food-b', name: 'Банан' }),
+        makeFoodItem({ id: 'food-c', name: 'Вишня' }),
+      ];
+      mockPrismaService.foodItem.findMany.mockResolvedValue(foods);
+      mockPrismaService.mealItem.groupBy.mockResolvedValue([
+        { foodItemId: 'food-c', _count: { foodItemId: 5 } },
+        { foodItemId: 'food-b', _count: { foodItemId: 2 } },
+      ]);
+
+      const result = await service.searchFood('', 'client-1');
+
+      expect(mockPrismaService.mealItem.groupBy).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { meal: { mealPlan: { clientId: 'client-1' } } } }),
+      );
+      expect(result.map((f) => f.id)).toEqual(['food-c', 'food-b', 'food-a']);
     });
 
     it('orders results by name ascending', async () => {

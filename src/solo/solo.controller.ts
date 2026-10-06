@@ -7,6 +7,7 @@ import { Roles, CurrentUser } from '../auth/decorators/roles.decorator';
 import { Role } from '@prisma/client';
 import { SoloService } from './solo.service';
 import { CreateSoloProfileDto } from './dto/create-solo-profile.dto';
+import { GenerateSoloProgramDto } from './dto/generate-solo-program.dto';
 
 @ApiTags('Solo')
 @ApiBearerAuth('JWT')
@@ -38,11 +39,14 @@ export class SoloController {
   }
 
   @Post('generate-program')
-  @ApiOperation({ summary: 'AI генерирует начальную программу тренировок' })
+  @ApiOperation({
+    summary: 'AI генерирует программу тренировок',
+    description: 'Тренировки добавляются в текущий сезон; если в нём не хватает места — остаток уходит в новый сезон',
+  })
   @ApiResponse({ status: 201, description: 'Программа создана' })
   @ApiResponse({ status: 403, description: 'Профиль не заполнен или условия не приняты' })
-  generateProgram(@CurrentUser() user: any) {
-    return this.soloService.generateInitialProgram(user.id);
+  generateProgram(@CurrentUser() user: any, @Body() dto: GenerateSoloProgramDto) {
+    return this.soloService.generateInitialProgram(user.id, dto);
   }
 
   @Get('current-season')

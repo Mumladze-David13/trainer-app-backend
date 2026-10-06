@@ -83,6 +83,14 @@ describe('NutritionController', () => {
       expect(service.upsertProfile).toHaveBeenCalledWith(dtoWithTarget, mockUser.id, mockUser.role);
     });
 
+    it('should pass clientId through to the service', async () => {
+      mockNutritionService.searchFood.mockResolvedValue([]);
+
+      await controller.searchFood('курица', 'client-1');
+
+      expect(service.searchFood).toHaveBeenCalledWith('курица', 'client-1');
+    });
+
     it('should propagate service errors', async () => {
       mockNutritionService.upsertProfile.mockRejectedValue(new Error('Client not found'));
 
@@ -270,7 +278,7 @@ describe('NutritionController', () => {
 
       const result = await controller.searchFood(query);
 
-      expect(service.searchFood).toHaveBeenCalledWith(query);
+      expect(service.searchFood).toHaveBeenCalledWith(query, undefined);
       expect(result).toEqual(expected);
     });
 
@@ -279,7 +287,7 @@ describe('NutritionController', () => {
 
       const result = await controller.searchFood('');
 
-      expect(service.searchFood).toHaveBeenCalledWith('');
+      expect(service.searchFood).toHaveBeenCalledWith('', undefined);
       expect(result).toEqual([]);
     });
 
